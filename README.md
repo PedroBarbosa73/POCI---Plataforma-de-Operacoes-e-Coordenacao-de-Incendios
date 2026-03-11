@@ -38,7 +38,7 @@ A plataforma foi concebida com dois níveis de utilização:
 
 ---
 
-## Funcionalidades (Prova de Conceito)
+## Funcionalidades 
 
 ### Mapa operacional
 

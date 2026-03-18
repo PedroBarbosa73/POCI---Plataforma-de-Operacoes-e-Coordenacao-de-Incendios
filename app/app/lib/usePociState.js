@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { units as mockUnits } from '../data/mockData'
 
 // ── Seed helpers ────────────────────────────────────────────────────────────
@@ -54,6 +54,7 @@ export function usePociState() {
   const [customUnits, setCustomUnits] = useState([])
 
   const channelRef = useRef(null)
+  const mountedRef = useRef(false)
 
   // ── On mount: seed + read all state ──────────────────────────────────────
   useEffect(() => {
@@ -71,19 +72,27 @@ export function usePociState() {
     if (cls) { try { setDrawnClosures(JSON.parse(cls)) } catch {} }
     const ci = localStorage.getItem('poci_customIncidents')
     if (ci) { try { setCustomIncidents(JSON.parse(ci)) } catch {} }
+
+    mountedRef.current = true
   }, [])
 
   // ── Persist migrated state on change (existing pattern) ──────────────────
   useEffect(() => {
+    if (!mountedRef.current) return
     try { localStorage.setItem('poci_drawnZones', JSON.stringify(drawnZonesByIncident)) } catch {}
+    broadcast()
   }, [drawnZonesByIncident])
 
   useEffect(() => {
+    if (!mountedRef.current) return
     try { localStorage.setItem('poci_drawnClosures', JSON.stringify(drawnClosures)) } catch {}
+    broadcast()
   }, [drawnClosures])
 
   useEffect(() => {
+    if (!mountedRef.current) return
     try { localStorage.setItem('poci_customIncidents', JSON.stringify(customIncidents)) } catch {}
+    broadcast()
   }, [customIncidents])
 
   // ── BroadcastChannel: re-read all state when another tab writes ───────────
@@ -108,42 +117,60 @@ export function usePociState() {
   // ── Actions ───────────────────────────────────────────────────────────────
 
   function assignUnit(unitId, incidentId) {
-    const newAssignments = { ...unitAssignments, [unitId]: incidentId }
-    const newStatuses = { ...unitStatuses, [unitId]: 'assigned' }
-    try { localStorage.setItem('poci_unitAssignments', JSON.stringify(newAssignments)) } catch {}
-    try { localStorage.setItem('poci_unitStatuses', JSON.stringify(newStatuses)) } catch {}
-    setUnitAssignments(newAssignments)
-    setUnitStatuses(newStatuses)
+    let savedAssignments
+    setUnitAssignments(prev => {
+      const next = { ...prev, [unitId]: incidentId }
+      try { localStorage.setItem('poci_unitAssignments', JSON.stringify(next)) } catch {}
+      savedAssignments = next
+      return next
+    })
+    setUnitStatuses(prev => {
+      const next = { ...prev, [unitId]: 'assigned' }
+      try { localStorage.setItem('poci_unitStatuses', JSON.stringify(next)) } catch {}
+      return next
+    })
     broadcast()
   }
 
   function unassignUnit(unitId) {
-    const newAssignments = { ...unitAssignments, [unitId]: null }
-    const newStatuses = { ...unitStatuses, [unitId]: 'available' }
-    try { localStorage.setItem('poci_unitAssignments', JSON.stringify(newAssignments)) } catch {}
-    try { localStorage.setItem('poci_unitStatuses', JSON.stringify(newStatuses)) } catch {}
-    setUnitAssignments(newAssignments)
-    setUnitStatuses(newStatuses)
+    setUnitAssignments(prev => {
+      const next = { ...prev, [unitId]: null }
+      try { localStorage.setItem('poci_unitAssignments', JSON.stringify(next)) } catch {}
+      return next
+    })
+    setUnitStatuses(prev => {
+      const next = { ...prev, [unitId]: 'available' }
+      try { localStorage.setItem('poci_unitStatuses', JSON.stringify(next)) } catch {}
+      return next
+    })
     broadcast()
   }
 
   function setUnitStatus(unitId, status) {
-    const newStatuses = { ...unitStatuses, [unitId]: status }
-    try { localStorage.setItem('poci_unitStatuses', JSON.stringify(newStatuses)) } catch {}
-    setUnitStatuses(newStatuses)
+    setUnitStatuses(prev => {
+      const next = { ...prev, [unitId]: status }
+      try { localStorage.setItem('poci_unitStatuses', JSON.stringify(next)) } catch {}
+      return next
+    })
     broadcast()
   }
 
   function addCustomUnit(unit) {
-    const newUnits = [...customUnits, unit]
-    const newAssignments = { ...unitAssignments, [unit.id]: null }
-    const newStatuses = { ...unitStatuses, [unit.id]: 'available' }
-    try { localStorage.setItem('poci_customUnits', JSON.stringify(newUnits)) } catch {}
-    try { localStorage.setItem('poci_unitAssignments', JSON.stringify(newAssignments)) } catch {}
-    try { localStorage.setItem('poci_unitStatuses', JSON.stringify(newStatuses)) } catch {}
-    setCustomUnits(newUnits)
-    setUnitAssignments(newAssignments)
-    setUnitStatuses(newStatuses)
+    setCustomUnits(prev => {
+      const next = [...prev, unit]
+      try { localStorage.setItem('poci_customUnits', JSON.stringify(next)) } catch {}
+      return next
+    })
+    setUnitAssignments(prev => {
+      const next = { ...prev, [unit.id]: null }
+      try { localStorage.setItem('poci_unitAssignments', JSON.stringify(next)) } catch {}
+      return next
+    })
+    setUnitStatuses(prev => {
+      const next = { ...prev, [unit.id]: 'available' }
+      try { localStorage.setItem('poci_unitStatuses', JSON.stringify(next)) } catch {}
+      return next
+    })
     broadcast()
   }
 
@@ -151,9 +178,10 @@ export function usePociState() {
 
   const allUnits = useMemo(() => [...mockUnits, ...customUnits], [customUnits])
 
-  function unitsByIncident(incidentId) {
-    return allUnits.filter(u => unitAssignments[u.id] === incidentId)
-  }
+  const unitsByIncident = useCallback(
+    (incidentId) => allUnits.filter(u => unitAssignments[u.id] === incidentId),
+    [allUnits, unitAssignments]
+  )
 
   const availableUnits = useMemo(
     () => allUnits.filter(u => !unitAssignments[u.id]),

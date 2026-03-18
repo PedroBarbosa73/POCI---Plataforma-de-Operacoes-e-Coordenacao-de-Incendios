@@ -1,7 +1,7 @@
 // app/app/meios/page.js
 'use client'
 
-import { useMemo, useState, Suspense } from 'react'
+import { useMemo, useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { incidents as mockIncidents } from '../data/mockData'
 import { usePociState } from '../lib/usePociState'
@@ -27,6 +27,15 @@ const STATUS_MAP = {
   'Atribuído': 'assigned',
   'Em Deslocação': 'enroute',
   'Em Ocorrência': 'onscene',
+}
+
+const TYPE_LABELS = {
+  bombeiros: 'Bombeiros',
+  gnr: 'GNR',
+  anepc: 'ANEPC',
+  air: 'Aéreo',
+  municipal: 'Municipal',
+  other: 'Outro',
 }
 
 function MeiosPageInner() {
@@ -68,6 +77,18 @@ function MeiosPageInner() {
 
   // ── Dropdown state: which unit's dropdown is open ─────────────────────────
   const [openDropdownId, setOpenDropdownId] = useState(null)
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    if (!openDropdownId) return
+    function handleClickOutside(e) {
+      if (!e.target.closest('.dropdown-wrap')) {
+        setOpenDropdownId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [openDropdownId])
 
   // ── Filtered units ────────────────────────────────────────────────────────
   const filteredUnits = useMemo(() => {
@@ -226,7 +247,7 @@ function MeiosPageInner() {
                   onClick={() => setSelectedUnitId(unit.id === selectedUnitId ? null : unit.id)}
                 >
                   <td className="meios-unit-name">{unit.name}</td>
-                  <td>{unit.type}</td>
+                  <td>{TYPE_LABELS[unit.type] || unit.type}</td>
                   <td>
                     <span className={unitBadge(status)}>{unitStatusLabel(status)}</span>
                   </td>

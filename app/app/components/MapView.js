@@ -20,6 +20,7 @@ const MapView = forwardRef(function MapView(
     customIncidents,
     unitStatuses = {},
     allUnits,
+    unitAssignments = {},
   },
   ref
 ) {
@@ -48,6 +49,7 @@ const MapView = forwardRef(function MapView(
   const onPlaceIncidentRef = useRef(onPlaceIncident);
   const unitStatusesRef = useRef({})
   const allUnitsRef = useRef([])
+  const unitAssignmentsRef = useRef({})
 
   const [drawingMode, setDrawingMode] = useState(null);
   const [drawPoints, setDrawPoints] = useState([]);
@@ -102,6 +104,7 @@ const MapView = forwardRef(function MapView(
 
   useEffect(() => { unitStatusesRef.current = unitStatuses }, [unitStatuses])
   useEffect(() => { allUnitsRef.current = allUnits || [] }, [allUnits])
+  useEffect(() => { unitAssignmentsRef.current = unitAssignments }, [unitAssignments])
 
   // Reactive: update unit marker icon colors when unitStatuses changes
   useEffect(() => {
@@ -670,7 +673,7 @@ const MapView = forwardRef(function MapView(
         return;
       }
       const unit = units.find((u) => u.id === id);
-      const hideByIncident = selectedIncidentId && unit && unit.incident !== selectedIncidentId;
+      const hideByIncident = selectedIncidentId && unit && unitAssignmentsRef.current[unit.id] !== selectedIncidentId;
       const dimByUnit = selectedUnitId && id !== selectedUnitId;
       const hide = Boolean(hideByIncident);
       const dim = Boolean(!hide && dimByUnit);

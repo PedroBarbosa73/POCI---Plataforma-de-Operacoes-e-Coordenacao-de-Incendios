@@ -33,7 +33,7 @@ export default function UnitDetailPanel({ unit, unitStatuses, unitAssignments, a
         <div className="unit-detail-row">
           <span className="unit-detail-label">Ocorrência</span>
           {assignedIncident ? (
-            <Link href={`/comando?focus=${assignedIncidentId}`} className="link-subtle">
+            <Link href="/comando" className="link-subtle">
               {assignedIncident.name} ({assignedIncidentId})
             </Link>
           ) : (

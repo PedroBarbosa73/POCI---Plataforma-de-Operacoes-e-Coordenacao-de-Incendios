@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Panel from './Panel';
 import { unitBadge, unitStatusLabel } from '../../lib/labels';
 
-export default function UnitsPanel({ units, allUnits, unitStatuses = {}, allCount, totalCount, selectedUnitId, demoMode, onToggleDemoMode, onSelectUnit }) {
+export default function UnitsPanel({ units, allUnits, unitStatuses = {}, unitAssignments = {}, allCount, totalCount, selectedUnitId, demoMode, onToggleDemoMode, onSelectUnit }) {
   const [query, setQuery] = useState('');
 
   const filtered = query.trim()
@@ -61,7 +61,7 @@ export default function UnitsPanel({ units, allUnits, unitStatuses = {}, allCoun
           </div>
           <div className="card-meta">
             <span>{unit.id}</span>
-            <span>{unit.incident || 'Livre'}</span>
+            <span>{unitAssignments[unit.id] || 'Livre'}</span>
           </div>
         </div>
       ))}

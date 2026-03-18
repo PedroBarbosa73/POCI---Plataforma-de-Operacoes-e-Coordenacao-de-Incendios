@@ -78,7 +78,7 @@ export default function PociApp({ mode = 'command', lockView = false }) {
   const visibleUnits = useMemo(() => {
     if (!selectedIncidentId) return allUnits;
     return unitsByIncident(selectedIncidentId);
-  }, [selectedIncidentId, allUnits, unitAssignments]);
+  }, [selectedIncidentId, allUnits, unitsByIncident]);
 
   const visibleClosures = useMemo(() => {
     const allClosures = [...closures, ...drawnClosures];
@@ -204,6 +204,7 @@ export default function PociApp({ mode = 'command', lockView = false }) {
           customIncidents={customIncidents}
           unitStatuses={unitStatuses}
           allUnits={allUnits}
+          unitAssignments={unitAssignments}
         />
 
         {/* ── Left sidebar ── */}
@@ -267,6 +268,7 @@ export default function PociApp({ mode = 'command', lockView = false }) {
                 onToggleDemoMode={() => setDemoMode((d) => !d)}
                 onSelectUnit={handleSelectUnit}
                 unitStatuses={unitStatuses}
+                unitAssignments={unitAssignments}
               />
             )}
             {selectedIncidentId && visiblePanels.alerts && <AlertsPanel alerts={alerts} />}

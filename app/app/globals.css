@@ -2193,7 +2193,8 @@ html, body {
 /* ── /meios page ─────────────────────────────────────────────── */
 .meios-page {
   padding: 56px 24px 24px; /* 44px navbar + 12px breathing room */
-  min-height: 100vh;
+  height: 100vh;
+  overflow-y: auto;
   background: var(--bg-primary);
 }
 

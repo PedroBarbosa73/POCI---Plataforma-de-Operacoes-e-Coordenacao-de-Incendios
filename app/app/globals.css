@@ -2189,3 +2189,173 @@ html, body {
   border-radius: 4px;
 }
 .icon-btn:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+
+/* ── /meios page ─────────────────────────────────────────────── */
+.meios-page {
+  padding: 56px 24px 24px; /* 44px navbar + 12px breathing room */
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.meios-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.meios-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.tab-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+}
+.tab-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+.tab-btn.active { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
+
+.meios-search-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.meios-chip-row { margin-bottom: 8px; }
+
+.chip-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 14px;
+  padding: 0 2px;
+}
+
+.meios-summary {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.meios-table-wrap { overflow-x: auto; }
+
+.meios-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.meios-table th {
+  text-align: left;
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+}
+
+.meios-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.meios-row { cursor: pointer; }
+.meios-row:hover { background: var(--bg-card-hover); }
+.meios-row.selected { background: var(--bg-card-hover); outline: 1px solid var(--accent-blue); }
+
+.meios-unit-name { font-weight: 500; color: var(--text-primary); }
+
+/* .meios-actions is a div inside <td> — using div avoids display:flex on <td> */
+.meios-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.meios-empty {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 32px;
+}
+
+/* Dropdown */
+.dropdown-wrap { position: relative; display: inline-block; }
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 200;
+  min-width: 220px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  overflow: hidden;
+}
+
+.dropdown-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  text-align: left;
+}
+.dropdown-item:hover { background: var(--bg-card-hover); }
+.dropdown-item.current { color: var(--accent-blue); }
+
+.dropdown-id { color: var(--text-secondary); font-size: 11px; }
+.dropdown-empty { padding: 8px 12px; color: var(--text-secondary); font-size: 13px; }
+
+/* ── Modal box (new-style) ── */
+.modal-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 440px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.modal-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal-footer {
+  padding: 12px 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+}

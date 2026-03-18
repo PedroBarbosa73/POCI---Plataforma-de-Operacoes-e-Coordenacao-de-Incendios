@@ -32,7 +32,8 @@ export default function NavBar() {
           <Link
             key={href}
             href={href}
-            className={`navbar-link ${pathname?.startsWith(href) ? 'navbar-link-active' : ''}`}
+            className={`navbar-link ${(pathname === href || pathname?.startsWith(href + '/')) ? 'navbar-link-active' : ''}`}
+            aria-current={(pathname === href || pathname?.startsWith(href + '/')) ? 'page' : undefined}
           >
             {label}
           </Link>

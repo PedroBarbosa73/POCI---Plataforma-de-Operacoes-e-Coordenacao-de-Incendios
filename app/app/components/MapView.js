@@ -1,8 +1,8 @@
 'use client';
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { incidents, units, closures } from '../data/mockData';
-import { buildIrregularPerimeter, mapIconHtml } from '../lib/mapUtils';
+import { incidents, units, closures, fireStations } from '../data/mockData';
+import { buildIrregularPerimeter, mapIconHtml, unitIconHtml, unitTypeColor, stationIconHtml } from '../lib/mapUtils';
 
 const MapView = forwardRef(function MapView(
   {
@@ -21,6 +21,7 @@ const MapView = forwardRef(function MapView(
     unitStatuses = {},
     allUnits,
     unitAssignments = {},
+    animatedPositions = {},
   },
   ref
 ) {
@@ -50,10 +51,16 @@ const MapView = forwardRef(function MapView(
   const unitStatusesRef = useRef({})
   const allUnitsRef = useRef([])
   const unitAssignmentsRef = useRef({})
+  const unitLayerRef = useRef(null)
+  const unitClusterLayerRef = useRef(null)
+  const unitPlainLayerRef = useRef(null)
+  const unitsVisibleRef = useRef(true)
 
   const [drawingMode, setDrawingMode] = useState(null);
   const [drawPoints, setDrawPoints] = useState([]);
   const [mapReady, setMapReady] = useState(false);
+  const [clusterEnabled, setClusterEnabled] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(false);
 
   function unitStatusColor(status) {
     const map = { available: '#9ca3af', assigned: '#eab308', enroute: '#f97316', onscene: '#ef4444' }
@@ -78,6 +85,7 @@ const MapView = forwardRef(function MapView(
   useEffect(() => {
     selectedIncidentRef.current = selectedIncidentId;
     if (requestRedrawRef.current) requestRedrawRef.current();
+    if (!selectedIncidentId) setToolsOpen(false);
   }, [selectedIncidentId]);
 
   useEffect(() => {
@@ -87,6 +95,10 @@ const MapView = forwardRef(function MapView(
 
   useEffect(() => {
     isPublicRef.current = isPublic;
+    if (isPublic && mapRef.current) {
+      if (unitClusterLayerRef.current) mapRef.current.removeLayer(unitClusterLayerRef.current);
+      if (unitPlainLayerRef.current) mapRef.current.removeLayer(unitPlainLayerRef.current);
+    }
     if (requestRedrawRef.current) requestRedrawRef.current();
   }, [isPublic]);
 
@@ -113,20 +125,31 @@ const MapView = forwardRef(function MapView(
     if (!L) return
     ;(allUnitsRef.current || []).forEach(unit => {
       const marker = unitMarkersRef.current[unit.id]
-      if (!marker) return  // custom units without map coordinates have no marker
+      if (!marker) return
       const status = unitStatusesRef.current[unit.id] || unit.status || 'available'
-      const color = unitStatusColor(status)
+      const statusColor = unitStatusColor(status)
+      const typeColor = unitTypeColor(unit.type)
       const glyph = unitGlyph(unit)
       const isLetter = unit.type !== 'air'
       marker.setIcon(L.divIcon({
-        className: `map-icon map-icon-${unit.type}`,
-        html: mapIconHtml(unit.name, color, glyph, isLetter),
-        iconSize: [36, 36],
-        iconAnchor: [18, 18],
-        popupAnchor: [0, -10],
+        className: 'map-icon map-unit',
+        html: unitIconHtml(unit.name, statusColor, glyph, typeColor, isLetter),
+        iconSize: [140, 24],
+        iconAnchor: [10, 12],
+        popupAnchor: [70, -10],
       }))
     })
   }, [unitStatuses, mapReady])
+
+  // Reactive: move unit markers to animated positions
+  useEffect(() => {
+    if (!mapReady) return
+    Object.entries(animatedPositions).forEach(([unitId, [lat, lng]]) => {
+      const marker = unitMarkersRef.current[unitId]
+      if (!marker) return // graceful no-op for units not yet in ref
+      marker.setLatLng([lat, lng])
+    })
+  }, [animatedPositions, mapReady])
 
   // Expose focus methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -146,6 +169,9 @@ const MapView = forwardRef(function MapView(
       if (!layer || !mapRef.current) return;
       mapRef.current.fitBounds(layer.getBounds(), { padding: [80, 80] });
       layer.openPopup();
+    },
+    startDrawing(mode) {
+      setDrawingMode(mode);
     },
   }));
 
@@ -188,7 +214,18 @@ const MapView = forwardRef(function MapView(
 
       const incidentLayer = L.layerGroup().addTo(mapInstance);
       incidentLayerRef.current = incidentLayer;
-      const unitLayer = L.layerGroup().addTo(mapInstance);
+      await import('leaflet.markercluster')
+      const clusterLayer = L.markerClusterGroup({
+        maxClusterRadius: 55,
+        showCoverageOnHover: false,
+        spiderfyOnMaxZoom: true,
+        disableClusteringAtZoom: 14,
+      });
+      if (!isPublicRef.current) clusterLayer.addTo(mapInstance);
+      const plainLayer = L.layerGroup();
+      unitClusterLayerRef.current = clusterLayer;
+      unitPlainLayerRef.current = plainLayer;
+      unitLayerRef.current = clusterLayer;
       const closureLayer = L.layerGroup().addTo(mapInstance);
       const zonesOverlay = L.layerGroup().addTo(mapInstance);
       const riskOverlay = L.layerGroup().addTo(mapInstance);
@@ -237,19 +274,20 @@ const MapView = forwardRef(function MapView(
       unitMarkersRef.current = {};
       units.forEach((unit) => {
         const status = unitStatusesRef.current[unit.id] || unit.status || 'available'
-        const color = unitStatusColor(status)
+        const statusColor = unitStatusColor(status)
+        const typeColor = unitTypeColor(unit.type)
         const glyph = unitGlyph(unit)
         const isLetter = unit.type !== 'air'
         const icon = L.divIcon({
-          className: `map-icon map-icon-${unit.type}`,
-          html: mapIconHtml(unit.name, color, glyph, isLetter),
-          iconSize: [36, 36],
-          iconAnchor: [18, 18],
-          popupAnchor: [0, -10],
+          className: 'map-icon map-unit',
+          html: unitIconHtml(unit.name, statusColor, glyph, typeColor, isLetter),
+          iconSize: [140, 24],
+          iconAnchor: [10, 12],
+          popupAnchor: [70, -10],
         })
         const marker = L.marker([unit.lat, unit.lng], { icon })
-          .bindPopup(`${unit.name} (${unit.id})`)
-          .addTo(unitLayer)
+          .bindPopup(`<b>${unit.name}</b><br>${unit.id}`)
+          .addTo(clusterLayer)
         unitMarkersRef.current[unit.id] = marker
       });
 
@@ -265,11 +303,27 @@ const MapView = forwardRef(function MapView(
         closureLayersRef.current[closure.id] = line;
       });
 
+      // ── Fire stations layer ──────────────────────────────────────────
+      const stationsLayer = L.layerGroup(); // OFF by default (not added to map)
+      fireStations.forEach((station) => {
+        const icon = L.divIcon({
+          className: 'map-icon map-unit',
+          html: stationIconHtml(station.name, station.type),
+          iconSize: [160, 22],
+          iconAnchor: [10, 11],
+          popupAnchor: [70, -8],
+        });
+        L.marker([station.lat, station.lng], { icon })
+          .bindPopup(`<b>${station.name}</b><br>${station.type === 'sapadores' ? 'Bombeiros Sapadores' : station.type === 'municipais' ? 'Bombeiros Municipais' : 'Bombeiros Voluntários'}`)
+          .addTo(stationsLayer);
+      });
+
       L.control.layers(
         { Topográfico: osm, Satélite: satellite, Noturno: dark },
         {
           Incidentes: incidentLayer,
-          Unidades: unitLayer,
+          Unidades: clusterLayer,
+          'Quartéis': stationsLayer,
           'Cortes de estrada': closureLayer,
           'Perímetro de fogo (mock)': riskOverlay,
           'Zonas visíveis': zonesOverlay,
@@ -280,6 +334,23 @@ const MapView = forwardRef(function MapView(
       ).addTo(mapInstance);
 
       darkLabels.addTo(mapInstance);
+
+      mapInstance.on('overlayremove', (e) => {
+        if (e.name === 'Unidades') {
+          unitsVisibleRef.current = false;
+          if (mapInstance.hasLayer(unitPlainLayerRef.current)) mapInstance.removeLayer(unitPlainLayerRef.current);
+          if (mapInstance.hasLayer(unitClusterLayerRef.current)) mapInstance.removeLayer(unitClusterLayerRef.current);
+        }
+      });
+      mapInstance.on('overlayadd', (e) => {
+        if (e.name === 'Unidades') {
+          unitsVisibleRef.current = true;
+          const activeLayer = unitLayerRef.current;
+          if (activeLayer && !mapInstance.hasLayer(activeLayer)) {
+            activeLayer.addTo(mapInstance);
+          }
+        }
+      });
 
       mapInstance.on('baselayerchange', (e) => {
         if (e.name === 'Noturno') {
@@ -661,28 +732,59 @@ const MapView = forwardRef(function MapView(
     });
   }, [selectedIncidentId]);
 
-  // Unit marker visibility
+  // Toggle clustering: swap markers between cluster and plain layer
   useEffect(() => {
+    if (!mapReady) return;
+    const clusterLayer = unitClusterLayerRef.current;
+    const plainLayer = unitPlainLayerRef.current;
+    const map = mapRef.current;
+    if (!clusterLayer || !plainLayer || !map) return;
+
+    const markers = Object.values(unitMarkersRef.current);
+    if (clusterEnabled) {
+      const wasVisible = map.hasLayer(plainLayer);
+      markers.forEach(m => { if (plainLayer.hasLayer(m)) plainLayer.removeLayer(m); });
+      markers.forEach(m => { if (!clusterLayer.hasLayer(m)) clusterLayer.addLayer(m); });
+      if (map.hasLayer(plainLayer)) map.removeLayer(plainLayer);
+      if ((wasVisible || (!map.hasLayer(clusterLayer) && unitsVisibleRef.current)) && !isPublicRef.current) clusterLayer.addTo(map);
+      unitLayerRef.current = clusterLayer;
+    } else {
+      const wasVisible = map.hasLayer(clusterLayer);
+      markers.forEach(m => { if (clusterLayer.hasLayer(m)) clusterLayer.removeLayer(m); });
+      markers.forEach(m => { if (!plainLayer.hasLayer(m)) plainLayer.addLayer(m); });
+      if (map.hasLayer(clusterLayer)) map.removeLayer(clusterLayer);
+      if ((wasVisible || (!map.hasLayer(plainLayer) && unitsVisibleRef.current)) && !isPublicRef.current) plainLayer.addTo(map);
+      unitLayerRef.current = plainLayer;
+    }
+  }, [clusterEnabled, mapReady]);
+
+  // Unit marker visibility — add/remove from active layer (setOpacity doesn't work in clusters)
+  useEffect(() => {
+    const layer = unitLayerRef.current;
+    if (!layer) return;
+
     Object.entries(unitMarkersRef.current).forEach(([id, marker]) => {
       if (!marker) return;
+
       if (isPublic) {
-        marker.setOpacity(0);
-        const el = marker.getElement?.();
-        if (el) el.style.pointerEvents = 'none';
-        if (marker.isPopupOpen?.()) marker.closePopup();
+        if (layer.hasLayer(marker)) layer.removeLayer(marker);
         return;
       }
+
       const unit = units.find((u) => u.id === id);
-      const hideByIncident = selectedIncidentId && unit && unitAssignmentsRef.current[unit.id] !== selectedIncidentId;
-      const dimByUnit = selectedUnitId && id !== selectedUnitId;
-      const hide = Boolean(hideByIncident);
-      const dim = Boolean(!hide && dimByUnit);
-      marker.setOpacity(hide ? 0 : dim ? 0.35 : 1);
-      const el = marker.getElement?.();
-      if (el) el.style.pointerEvents = hide ? 'none' : 'auto';
-      if ((hide || dim) && marker.isPopupOpen?.()) marker.closePopup();
+      const assignment = unitAssignmentsRef.current[id];
+      // Fall back to unit.incident when assignment not yet in state (stale localStorage)
+      const effectiveIncident = assignment !== undefined ? assignment : unit?.incident;
+      const belongsToSelected = !selectedIncidentId || effectiveIncident === selectedIncidentId;
+
+      if (belongsToSelected) {
+        if (!layer.hasLayer(marker)) layer.addLayer(marker);
+      } else {
+        if (layer.hasLayer(marker)) layer.removeLayer(marker);
+        if (marker.isPopupOpen?.()) marker.closePopup();
+      }
     });
-  }, [selectedIncidentId, selectedUnitId, isPublic]);
+  }, [selectedIncidentId, selectedUnitId, isPublic, clusterEnabled]);
 
   // Risk overlay visibility
   useEffect(() => {
@@ -706,28 +808,56 @@ const MapView = forwardRef(function MapView(
     <div className="map-container">
       <div ref={mapElRef} className="map-leaflet" />
 
+      {/* High-z controls — sit above Leaflet's own controls */}
+      {isCommandView && (
+        <div className="map-controls-topright">
+          <button
+            className={`map-ctrl-btn ${clusterEnabled ? '' : 'map-ctrl-btn-active'}`}
+            onClick={() => setClusterEnabled(v => !v)}
+            title="Ativar/desativar agrupamento de unidades"
+          >
+            {clusterEnabled ? '⊕ Clustering' : '⊕ Clustering Off'}
+          </button>
+
+          {selectedIncidentId && (
+            <div className="map-tools-wrap">
+              <button
+                className={`map-ctrl-btn ${drawingMode ? 'map-ctrl-btn-active' : ''}`}
+                onClick={() => setToolsOpen(v => !v)}
+                title="Ferramentas de edição"
+              >
+                ✏ Editar
+              </button>
+              {toolsOpen && !drawingMode && (
+                <div className="map-tools-dropdown">
+                  <button className="map-tools-item" onClick={() => { setDrawingMode('zone'); setToolsOpen(false); }}>
+                    Desenhar zona
+                  </button>
+                  <button className="map-tools-item" onClick={() => { setDrawingMode('closure'); setToolsOpen(false); }}>
+                    Cortar estrada
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="map-overlay">
         <div className="map-toolbar">
-          {isCommandView ? (
-            placingIncident ? (
-              <div className="toolbar-card drawing-active">
-                <div className="drawing-mode-label">Nova ocorrência</div>
-                <div className="drawing-hint">Clique no mapa para localizar o incidente</div>
+          {isCommandView && (placingIncident || drawingMode) ? (
+            <div className="toolbar-card drawing-active">
+              <div className="drawing-mode-label">
+                {placingIncident ? 'Nova ocorrência' : drawingMode === 'zone' ? 'Desenhar zona' : 'Cortar estrada'}
               </div>
-            ) : drawingMode ? (
-              <div className="toolbar-card drawing-active">
-                <div className="drawing-mode-label">
-                  {drawingMode === 'zone' ? 'Desenhar zona' : 'Cortar estrada'}
-                </div>
-                <div className="drawing-hint">
-                  {drawingMode === 'zone'
-                    ? drawPoints.length < 3
-                      ? 'Clique para adicionar pontos'
-                      : 'Clique perto do início para fechar'
-                    : drawPoints.length < 2
-                    ? 'Clique para iniciar o corte'
-                    : 'Adicione pontos ou termine'}
-                </div>
+              <div className="drawing-hint">
+                {placingIncident
+                  ? 'Clique no mapa para localizar o incidente'
+                  : drawingMode === 'zone'
+                  ? drawPoints.length < 3 ? 'Clique para adicionar pontos' : 'Clique perto do início para fechar'
+                  : drawPoints.length < 2 ? 'Clique para iniciar o corte' : 'Adicione pontos ou termine'}
+              </div>
+              {!placingIncident && (
                 <div className="brush-row">
                   <button
                     className="btn btn-sm btn-primary"
@@ -736,37 +866,13 @@ const MapView = forwardRef(function MapView(
                   >
                     {drawingMode === 'zone' ? 'Fechar polígono' : 'Terminar linha'}
                   </button>
-                  <button
-                    className="btn btn-sm btn-secondary"
-                    onClick={() => cancelDrawingRef.current?.()}
-                  >
+                  <button className="btn btn-sm btn-secondary" onClick={() => cancelDrawingRef.current?.()}>
                     Cancelar
                   </button>
                 </div>
-                <div className="drawing-point-count">{drawPoints.length} pontos</div>
-              </div>
-            ) : !selectedIncidentId ? (
-              <div className="toolbar-card">
-                <div className="card-meta">Selecione um incidente para editar.</div>
-              </div>
-            ) : (
-              <div className="toolbar-card">
-                <div className="brush-row">
-                  <button
-                    className="btn btn-sm btn-secondary"
-                    onClick={() => setDrawingMode('zone')}
-                  >
-                    Desenhar zona
-                  </button>
-                  <button
-                    className="btn btn-sm btn-secondary"
-                    onClick={() => setDrawingMode('closure')}
-                  >
-                    Cortar estrada
-                  </button>
-                </div>
-              </div>
-            )
+              )}
+              {!placingIncident && <div className="drawing-point-count">{drawPoints.length} pontos</div>}
+            </div>
           ) : null}
         </div>
 

@@ -201,6 +201,7 @@ export function usePociState() {
   const channelRef = useRef(null)
   const mountedRef = useRef(false)
   const customIncidentsRef = useRef([])
+  const snapshotsRef = useRef({})
 
   // ── On mount: seed + read all state ──────────────────────────────────────
   useEffect(() => {
@@ -224,7 +225,7 @@ export function usePociState() {
 
     const ss = readLS('poci_scenario_state', {})
     if (ss.scenarioActive) setScenarioActive(true)
-    if (ss.currentStep) setCurrentStep(ss.currentStep)
+    if (typeof ss.currentStep === 'number') setCurrentStep(ss.currentStep)
 
     mountedRef.current = true
   }, [])
@@ -315,7 +316,7 @@ export function usePociState() {
       case 'create_incident': {
         const id = `INC-DEMO-${Date.now()}`
         const incident = { ...step.params, id }
-        step._snapshot = { incidentId: id }
+        snapshotsRef.current[step.id] = { incidentId: id }
         setCustomIncidents(prev => {
           const next = [...prev, incident]
           try { localStorage.setItem('poci_customIncidents', JSON.stringify(next)) } catch {}
@@ -328,7 +329,7 @@ export function usePociState() {
       case 'assign_unit': {
         const allNow = [...mockUnits, ...customUnits]
         const unit = allNow.find(u => u.id === step.params.unitId)
-        step._snapshot = { priorPos: unit ? [unit.lat, unit.lng] : null }
+        snapshotsRef.current[step.id] = { priorPos: unit ? [unit.lat, unit.lng] : null }
         assignUnit(step.params.unitId, step.params.incidentId) // logs internally
         if (startUnitMovement && unit) {
           const allIncs = [
@@ -346,7 +347,7 @@ export function usePociState() {
           ...customIncidentsRef.current,
         ]
         const inc = allIncs.find(i => i.id === step.params.incidentId)
-        step._snapshot = { priorStatus: inc?.status }
+        snapshotsRef.current[step.id] = { priorStatus: inc?.status }
         updateIncidentStatus(step.params.incidentId, step.params.status) // logs internally
         break
       }
@@ -364,7 +365,7 @@ export function usePociState() {
         const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
           ? crypto.randomUUID()
           : Date.now().toString(36) + Math.random().toString(36).slice(2)
-        step._snapshot = { alertId: id }
+        snapshotsRef.current[step.id] = { alertId: id }
         addAlert({ id, ...step.params, status: 'active' })
         appendLog({ type: 'alert_triggered', alertId: id, alertTitle: step.params.title, alertLevel: step.params.level, target: `Raio ${step.params.radius || 0} km`, incidentId: step.params.incidentId })
         break
@@ -390,7 +391,7 @@ export function usePociState() {
 
     switch (step.type) {
       case 'create_incident': {
-        const incidentId = step._snapshot?.incidentId
+        const incidentId = snapshotsRef.current[step.id]?.incidentId
         if (incidentId) {
           setCustomIncidents(prev => {
             const next = prev.filter(i => i.id !== incidentId)
@@ -402,19 +403,19 @@ export function usePociState() {
         break
       }
       case 'assign_unit': {
-        const priorPos = step._snapshot?.priorPos
+        const priorPos = snapshotsRef.current[step.id]?.priorPos
         unassignUnit(step.params.unitId)
         if (stopUnitMovement) stopUnitMovement(step.params.unitId, priorPos)
         break
       }
       case 'update_incident_status': {
-        if (step._snapshot?.priorStatus != null) {
-          updateIncidentStatus(step.params.incidentId, step._snapshot.priorStatus) // logs intentionally
+        if (snapshotsRef.current[step.id]?.priorStatus != null) {
+          updateIncidentStatus(step.params.incidentId, snapshotsRef.current[step.id].priorStatus) // logs intentionally
         }
         break
       }
       case 'create_alert': {
-        if (step._snapshot?.alertId) resolveAlert(step._snapshot.alertId)
+        if (snapshotsRef.current[step.id]?.alertId) resolveAlert(snapshotsRef.current[step.id].alertId)
         break
       }
       case 'close_road':

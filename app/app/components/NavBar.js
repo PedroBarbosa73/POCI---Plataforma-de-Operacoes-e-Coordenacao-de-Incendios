@@ -5,18 +5,40 @@ import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 
 const NAV_LINKS = [
-  { href: '/comando', label: 'Situação' },
+  { href: '/comando', label: 'Comando' },
   { href: '/meios',   label: 'Meios' },
   { href: '/radio',   label: 'Rádio' },
   { href: '/alertas', label: 'Alertas' },
   { href: '/relatorio', label: 'Relatório' },
+  { href: '/demo', label: 'Demo' },
 ]
 
 export default function NavBar() {
   const pathname = usePathname()
 
-  // Hide on public-facing page
-  if (pathname?.startsWith('/publico')) return null
+  // Minimal public navbar
+  if (pathname?.startsWith('/publico')) return (
+    <nav className="navbar">
+      <div className="navbar-left">
+        <div className="navbar-logo">
+          <div className="logo-icon">PO</div>
+          <span className="navbar-appname">POCI</span>
+        </div>
+      </div>
+      <div className="navbar-right">
+        <Link href="/login" className="btn btn-ghost btn-sm">Entrar</Link>
+      </div>
+    </nav>
+  )
+
+  function handleNovaOcorrencia() {
+    if (pathname === '/comando') {
+      window.dispatchEvent(new CustomEvent('poci:nova-ocorrencia'))
+    } else {
+      // Navigate to comando; user can place incident from there
+      window.location.href = '/comando'
+    }
+  }
 
   return (
     <nav className="navbar">
@@ -41,6 +63,9 @@ export default function NavBar() {
       </div>
 
       <div className="navbar-right">
+        <button className="btn btn-primary btn-sm" onClick={handleNovaOcorrencia}>
+          + Nova Ocorrência
+        </button>
         <button className="btn btn-ghost btn-sm" onClick={() => signOut()}>
           Sair
         </button>

@@ -3204,4 +3204,100 @@ html, body {
   font-weight: 600;
   padding: 5px 12px;
 }
+
+/* ── Demo Page ───────────────────────────────────────────────────────────── */
+.demo-page {
+  display: flex;
+  height: 100vh;
+  padding-top: 56px;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+.demo-page-left {
+  width: 340px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.demo-page-right {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+}
+.demo-page-empty {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin-top: 40px;
+  text-align: center;
+}
+.demo-start-btn {
+  margin: 12px 16px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 120, 40, 0.4);
+  background: rgba(255, 120, 40, 0.15);
+  color: var(--accent-orange);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.demo-start-btn:hover:not(:disabled) { background: rgba(255, 120, 40, 0.3); }
+.demo-start-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ScriptEditor */
+.script-editor { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+.script-editor-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px; border-bottom: 1px solid var(--border);
+}
+.script-editor-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.script-editor-add {
+  font-size: 12px; padding: 4px 10px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--accent-green); cursor: pointer;
+}
+.script-editor-add:hover { background: var(--bg-card-hover); }
+.script-editor-empty { color: var(--text-muted); font-size: 13px; padding: 24px 16px; text-align: center; }
+.script-editor-list { flex: 1; overflow-y: auto; }
+.script-step {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border);
+  transition: background 0.12s;
+}
+.script-step:hover { background: var(--bg-card); }
+.script-step.active { background: rgba(255, 120, 40, 0.08); border-left: 2px solid var(--accent-orange); }
+.script-step-index { font-size: 11px; color: var(--text-muted); min-width: 20px; text-align: right; }
+.script-step-info { flex: 1; overflow: hidden; }
+.script-step-type { font-size: 11px; color: var(--text-secondary); display: block; }
+.script-step-label { font-size: 12px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.script-step-actions { display: flex; gap: 2px; }
+.script-step-actions button {
+  padding: 2px 5px; font-size: 11px; border-radius: 4px;
+  border: 1px solid transparent; background: transparent;
+  color: var(--text-muted); cursor: pointer;
+}
+.script-step-actions button:hover:not(:disabled) { background: var(--bg-card-hover); color: var(--text-primary); }
+.script-step-actions button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* EventForm */
+.event-form { display: flex; flex-direction: column; gap: 16px; max-width: 480px; }
+.event-form-field { display: flex; flex-direction: column; gap: 6px; }
+.event-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.event-form-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); }
+.event-form-input {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 10px; color: var(--text-primary);
+  font-size: 13px; font-family: inherit; width: 100%; box-sizing: border-box;
+}
+.event-form-input:focus { outline: none; border-color: rgba(255,120,40,0.4); }
+.event-form-save {
+  margin-top: 4px; padding: 9px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--accent-green); font-size: 13px; font-weight: 600;
+  cursor: pointer; align-self: flex-start; padding: 8px 20px;
+}
+.event-form-save:hover { background: var(--bg-card-hover); }
 .alertas-show-resolved { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); margin-left: auto; cursor: pointer; }

@@ -195,9 +195,12 @@ export function usePociState() {
   const [alerts, setAlerts] = useState([])
   const [radioMessages, setRadioMessages] = useState([])
   const [incidentStatusOverrides, setIncidentStatusOverrides] = useState({})
+  const [scenarioActive, setScenarioActive] = useState(false)
+  const [currentStep, setCurrentStep] = useState(0)
 
   const channelRef = useRef(null)
   const mountedRef = useRef(false)
+  const customIncidentsRef = useRef([])
 
   // ── On mount: seed + read all state ──────────────────────────────────────
   useEffect(() => {
@@ -218,6 +221,10 @@ export function usePociState() {
     if (cls) { try { setDrawnClosures(JSON.parse(cls)) } catch {} }
     const ci = localStorage.getItem('poci_customIncidents')
     if (ci) { try { setCustomIncidents(JSON.parse(ci)) } catch {} }
+
+    const ss = readLS('poci_scenario_state', {})
+    if (ss.scenarioActive) setScenarioActive(true)
+    if (ss.currentStep) setCurrentStep(ss.currentStep)
 
     mountedRef.current = true
   }, [])
@@ -240,6 +247,8 @@ export function usePociState() {
     try { localStorage.setItem('poci_customIncidents', JSON.stringify(customIncidents)) } catch {}
     broadcast()
   }, [customIncidents])
+
+  useEffect(() => { customIncidentsRef.current = customIncidents }, [customIncidents])
 
   // ── BroadcastChannel: re-read all state when another tab writes ───────────
   useEffect(() => {
@@ -281,6 +290,145 @@ export function usePociState() {
     setOpLog([])
     try { localStorage.removeItem('poci_opLog') } catch {}
     broadcast()
+  }
+
+  function saveScenarioState(active, step) {
+    try { localStorage.setItem('poci_scenario_state', JSON.stringify({ scenarioActive: active, currentStep: step })) } catch {}
+  }
+
+  function startScenario() {
+    setScenarioActive(true)
+    setCurrentStep(0)
+    saveScenarioState(true, 0)
+  }
+
+  function terminateScenario() {
+    setScenarioActive(false)
+    setCurrentStep(0)
+    saveScenarioState(false, 0)
+  }
+
+  function executeStep(step, callbacks = {}) {
+    const { startUnitMovement } = callbacks
+
+    switch (step.type) {
+      case 'create_incident': {
+        const id = `INC-DEMO-${Date.now()}`
+        const incident = { ...step.params, id }
+        step._snapshot = { incidentId: id }
+        setCustomIncidents(prev => {
+          const next = [...prev, incident]
+          try { localStorage.setItem('poci_customIncidents', JSON.stringify(next)) } catch {}
+          return next
+        })
+        appendLog({ type: 'incident_created', incidentId: id, incidentName: incident.name, area: incident.name, status: incident.status })
+        broadcast()
+        break
+      }
+      case 'assign_unit': {
+        const allNow = [...mockUnits, ...customUnits]
+        const unit = allNow.find(u => u.id === step.params.unitId)
+        step._snapshot = { priorPos: unit ? [unit.lat, unit.lng] : null }
+        assignUnit(step.params.unitId, step.params.incidentId) // logs internally
+        if (startUnitMovement && unit) {
+          const allIncs = [
+            ...mockIncidents.map(i => ({ ...i, status: incidentStatusOverrides[i.id] ?? i.status })),
+            ...customIncidentsRef.current,
+          ]
+          const incident = allIncs.find(i => i.id === step.params.incidentId)
+          if (incident) startUnitMovement(unit, incident)
+        }
+        break
+      }
+      case 'update_incident_status': {
+        const allIncs = [
+          ...mockIncidents.map(i => ({ ...i, status: incidentStatusOverrides[i.id] ?? i.status })),
+          ...customIncidentsRef.current,
+        ]
+        const inc = allIncs.find(i => i.id === step.params.incidentId)
+        step._snapshot = { priorStatus: inc?.status }
+        updateIncidentStatus(step.params.incidentId, step.params.status) // logs internally
+        break
+      }
+      case 'close_road': {
+        setDrawnClosures(prev => {
+          const next = [...prev, step.params]
+          try { localStorage.setItem('poci_drawnClosures', JSON.stringify(next)) } catch {}
+          return next
+        })
+        appendLog({ type: 'closure_drawn', incidentId: step.params.incident, closureName: step.params.name })
+        broadcast()
+        break
+      }
+      case 'create_alert': {
+        const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : Date.now().toString(36) + Math.random().toString(36).slice(2)
+        step._snapshot = { alertId: id }
+        addAlert({ id, ...step.params, status: 'active' })
+        appendLog({ type: 'alert_triggered', alertId: id, alertTitle: step.params.title, alertLevel: step.params.level, target: `Raio ${step.params.radius || 0} km`, incidentId: step.params.incidentId })
+        break
+      }
+      case 'send_radio': {
+        addRadioMessage(step.params) // logs internally
+        break
+      }
+      case 'narrative':
+      default:
+        break
+    }
+
+    setCurrentStep(prev => {
+      const next = prev + 1
+      saveScenarioState(true, next)
+      return next
+    })
+  }
+
+  function revertStep(step, callbacks = {}) {
+    const { stopUnitMovement } = callbacks
+
+    switch (step.type) {
+      case 'create_incident': {
+        const incidentId = step._snapshot?.incidentId
+        if (incidentId) {
+          setCustomIncidents(prev => {
+            const next = prev.filter(i => i.id !== incidentId)
+            try { localStorage.setItem('poci_customIncidents', JSON.stringify(next)) } catch {}
+            return next
+          })
+          broadcast()
+        }
+        break
+      }
+      case 'assign_unit': {
+        const priorPos = step._snapshot?.priorPos
+        unassignUnit(step.params.unitId)
+        if (stopUnitMovement) stopUnitMovement(step.params.unitId, priorPos)
+        break
+      }
+      case 'update_incident_status': {
+        if (step._snapshot?.priorStatus != null) {
+          updateIncidentStatus(step.params.incidentId, step._snapshot.priorStatus) // logs intentionally
+        }
+        break
+      }
+      case 'create_alert': {
+        if (step._snapshot?.alertId) resolveAlert(step._snapshot.alertId)
+        break
+      }
+      case 'close_road':
+      case 'send_radio':
+      case 'narrative':
+      default:
+        break
+    }
+
+    setCurrentStep(prev => {
+      const next = Math.max(0, prev - 1)
+      saveScenarioState(true, next)
+      return next
+    })
   }
 
   // ── Alert actions ─────────────────────────────────────────────────────────
@@ -441,5 +589,10 @@ export function usePociState() {
 
     // Radio messages
     radioMessages, addRadioMessage,
+
+    // Scenario engine
+    scenarioActive, currentStep,
+    startScenario, terminateScenario,
+    executeStep, revertStep,
   }
 }

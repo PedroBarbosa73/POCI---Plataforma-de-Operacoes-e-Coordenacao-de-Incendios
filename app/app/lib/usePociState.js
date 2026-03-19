@@ -194,6 +194,7 @@ export function usePociState() {
   const [opLog, setOpLog] = useState([])
   const [alerts, setAlerts] = useState([])
   const [radioMessages, setRadioMessages] = useState([])
+  const [incidentStatusOverrides, setIncidentStatusOverrides] = useState({})
 
   const channelRef = useRef(null)
   const mountedRef = useRef(false)
@@ -379,9 +380,15 @@ export function usePociState() {
   }
 
   function updateIncidentStatus(incidentId, newStatus) {
-    const inc = customIncidents.find(i => i.id === incidentId) || mockIncidents.find(i => i.id === incidentId)
+    const isCustom = customIncidents.some(i => i.id === incidentId)
+    const inc = customIncidents.find(i => i.id === incidentId) ||
+      mockIncidents.map(i => ({ ...i, status: incidentStatusOverrides[i.id] ?? i.status })).find(i => i.id === incidentId)
     appendLog({ type: 'incident_status_changed', incidentId, incidentName: inc?.name || incidentId, from: inc?.status || '?', to: newStatus })
-    setCustomIncidents(prev => prev.map(i => i.id === incidentId ? { ...i, status: newStatus } : i))
+    if (isCustom) {
+      setCustomIncidents(prev => prev.map(i => i.id === incidentId ? { ...i, status: newStatus } : i))
+    } else {
+      setIncidentStatusOverrides(prev => ({ ...prev, [incidentId]: newStatus }))
+    }
     broadcast()
   }
 
@@ -418,7 +425,13 @@ export function usePociState() {
 
     // Derived
     allUnits, unitsByIncident, availableUnits,
-    allIncidents: useMemo(() => [...mockIncidents, ...customIncidents], [customIncidents]),
+    allIncidents: useMemo(
+      () => [
+        ...mockIncidents.map(i => ({ ...i, status: incidentStatusOverrides[i.id] ?? i.status })),
+        ...customIncidents,
+      ],
+      [customIncidents, incidentStatusOverrides]
+    ),
 
     // Operations log
     opLog, clearLog, appendLog,

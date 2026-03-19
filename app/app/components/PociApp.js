@@ -1,10 +1,11 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
-import { incidents, closures, alerts, weather, initialZones } from '../data/mockData';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { incidents, closures, weather, initialZones } from '../data/mockData';
 import { usePociState } from '../lib/usePociState';
-import AppHeader from './AppHeader';
+import { useUnitAnimation } from '../lib/useUnitAnimation';
 import MapView from './MapView';
+import DemoPlayer from './DemoPlayer';
 import DrawModal from './DrawModal';
 import ZoneModal from './ZoneModal';
 import PublicSidebar from './PublicSidebar';
@@ -28,7 +29,14 @@ export default function PociApp({ mode = 'command', lockView = false }) {
     unitAssignments, unitStatuses,
     assignUnit, unassignUnit,
     allUnits, unitsByIncident,
+    appendLog,
+    alerts,
+    scenarioActive, currentStep,
+    terminateScenario,
+    executeStep, revertStep,
   } = usePociState()
+
+  const { animatedPositions, startUnitMovement, stopUnitMovement } = useUnitAnimation()
 
   const [view, setView] = useState(lockView ? mode : 'command');
   const isPublic = view === 'public';
@@ -41,6 +49,15 @@ export default function PociApp({ mode = 'command', lockView = false }) {
   const [pendingDraw, setPendingDraw] = useState(null);
   const [placingIncident, setPlacingIncident] = useState(false);
   const [pendingPlacement, setPendingPlacement] = useState(null);
+
+  const [scenarioSteps, setScenarioSteps] = useState([])
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('poci_scenario')
+      if (raw) setScenarioSteps(JSON.parse(raw))
+    } catch {}
+  }, [])
 
   const zonesByIncident = useMemo(() => {
     const merged = { ...initialZones };
@@ -60,15 +77,14 @@ export default function PociApp({ mode = 'command', lockView = false }) {
 
   const mapRef = useRef(null);
 
-  const allIncidents = useMemo(() => [...incidents, ...customIncidents], [customIncidents]);
+  // Listen for NavBar "Nova Ocorrência" button event
+  useEffect(() => {
+    const handler = () => handleNovaOcorrenciaClick();
+    window.addEventListener('poci:nova-ocorrencia', handler);
+    return () => window.removeEventListener('poci:nova-ocorrencia', handler);
+  }, []);
 
-  const incidentCounts = useMemo(() => {
-    const counts = { active: 0, controlled: 0, surveillance: 0 };
-    allIncidents.forEach((inc) => {
-      if (counts[inc.status] !== undefined) counts[inc.status] += 1;
-    });
-    return counts;
-  }, [allIncidents]);
+  const allIncidents = useMemo(() => [...incidents, ...customIncidents], [customIncidents]);
 
   const visibleIncidents = useMemo(() => {
     if (!selectedIncidentId) return allIncidents;
@@ -108,6 +124,10 @@ export default function PociApp({ mode = 'command', lockView = false }) {
   }
 
   function handleSelectUnit(id) {
+    if (id === selectedUnitId) {
+      setSelectedUnitId(null);
+      return;
+    }
     setSelectedUnitId(id);
     const incidentId = unitAssignments[id]
     if (incidentId) setSelectedIncidentId(incidentId)
@@ -152,8 +172,21 @@ export default function PociApp({ mode = 'command', lockView = false }) {
       lng: data.lng,
       updated: 'agora',
     };
+    appendLog({ type: 'incident_created', incidentId: newInc.id, incidentName: newInc.name, area: newInc.area, status: newInc.status })
     setCustomIncidents((prev) => [...prev, newInc]);
     setPendingPlacement(null);
+  }
+
+  function handleDemoNext() {
+    const step = scenarioSteps[currentStep]
+    if (!step) return
+    executeStep(step, { startUnitMovement })
+  }
+
+  function handleDemoPrev() {
+    if (currentStep === 0) return
+    const step = scenarioSteps[currentStep - 1]
+    revertStep(step, { stopUnitMovement })
   }
 
   function handleDrawComplete({ mode, points }) {
@@ -163,12 +196,14 @@ export default function PociApp({ mode = 'command', lockView = false }) {
   function handleDrawSave(data) {
     if (!pendingDraw) return;
     if (pendingDraw.mode === 'zone' && selectedIncidentId) {
+      appendLog({ type: 'zone_drawn', incidentId: selectedIncidentId, zoneName: data.name, zoneType: data.type })
       setDrawnZonesByIncident((prev) => {
         const list = prev[selectedIncidentId] ? [...prev[selectedIncidentId]] : [];
         list.push({ id: `Z-${Date.now()}`, name: data.name, type: data.type, points: pendingDraw.points });
         return { ...prev, [selectedIncidentId]: list };
       });
     } else if (pendingDraw.mode === 'closure' && selectedIncidentId) {
+      appendLog({ type: 'closure_drawn', incidentId: selectedIncidentId, closureName: data.name })
       setDrawnClosures((prev) => [
         ...prev,
         {
@@ -185,8 +220,6 @@ export default function PociApp({ mode = 'command', lockView = false }) {
 
   return (
     <div className="app-wrapper">
-      <AppHeader lockView={lockView} isPublic={isPublic} view={view} setView={setView} incidentCounts={incidentCounts} unitCount={visibleUnits.length} totalUnitCount={allUnits.length} selectedIncidentId={selectedIncidentId} onNovaOcorrencia={handleNovaOcorrenciaClick} />
-
       <section className="map-area">
         <MapView
           ref={mapRef}
@@ -205,6 +238,7 @@ export default function PociApp({ mode = 'command', lockView = false }) {
           unitStatuses={unitStatuses}
           allUnits={allUnits}
           unitAssignments={unitAssignments}
+          animatedPositions={animatedPositions}
         />
 
         {/* ── Left sidebar ── */}
@@ -222,6 +256,8 @@ export default function PociApp({ mode = 'command', lockView = false }) {
               onDeleteClosure={handleDeleteDrawnClosure}
               drawnClosureIds={new Set(drawnClosures.map((c) => c.id))}
               unitStatuses={unitStatuses}
+              onDrawZone={() => mapRef.current?.startDrawing('zone')}
+              onDrawClosure={() => mapRef.current?.startDrawing('closure')}
             />
           ) : (
             <>
@@ -244,7 +280,6 @@ export default function PociApp({ mode = 'command', lockView = false }) {
                   onSelectClosure={handleSelectClosure}
                 />
               )}
-              {!isPublic && visiblePanels.radio && <RadioPanel />}
             </>
           )}
         </aside>
@@ -271,7 +306,7 @@ export default function PociApp({ mode = 'command', lockView = false }) {
                 unitAssignments={unitAssignments}
               />
             )}
-            {selectedIncidentId && visiblePanels.alerts && <AlertsPanel alerts={alerts} />}
+            {selectedIncidentId && visiblePanels.alerts && <AlertsPanel alerts={alerts} incidentId={selectedIncidentId} />}
           </aside>
         )}
 
@@ -291,6 +326,15 @@ export default function PociApp({ mode = 'command', lockView = false }) {
         onSave={handleNovaOcorrenciaSave}
         onCancel={() => setPendingPlacement(null)}
       />
+      {scenarioActive && (
+        <DemoPlayer
+          steps={scenarioSteps}
+          currentStep={currentStep}
+          onNext={handleDemoNext}
+          onPrev={handleDemoPrev}
+          onTerminate={terminateScenario}
+        />
+      )}
     </div>
   );
 }

@@ -83,9 +83,9 @@ function AlertasPageInner() {
   const criticalCount  = useMemo(() => activeAlerts.filter(a => a.level === 'critical').length, [activeAlerts]);
   const coverageCount  = useMemo(() => activeAlerts.length, [activeAlerts]);
   const lastAlert      = useMemo(() => {
-    const withTs = alerts.filter(a => a.timestamp);
+    const withTs = alerts.filter(a => a.created_at ?? a.timestamp);
     if (withTs.length === 0) return null;
-    return withTs.reduce((best, a) => a.timestamp > best.timestamp ? a : best);
+    return withTs.reduce((best, a) => (a.created_at ?? a.timestamp) > (best.created_at ?? best.timestamp) ? a : best);
   }, [alerts]);
 
   // ── Filtered list ──────────────────────────────────────────────────────────
@@ -177,7 +177,7 @@ function AlertasPageInner() {
         </div>
         <div className="alertas-stat">
           <div className="alertas-stat-value" style={{ fontSize: '16px', paddingTop: '4px' }}>
-            {lastAlert ? formatTime(lastAlert.timestamp) : '—'}
+            {lastAlert ? formatTime(lastAlert.created_at ?? lastAlert.timestamp) : '—'}
           </div>
           <div className="alertas-stat-label">Última alerta</div>
         </div>
@@ -321,8 +321,8 @@ function AlertasPageInner() {
                       ))}
                     </span>
                   )}
-                  {alert.timestamp && (
-                    <span>{formatTime(alert.timestamp)}</span>
+                  {(alert.created_at ?? alert.timestamp) && (
+                    <span>{formatTime(alert.created_at ?? alert.timestamp)}</span>
                   )}
                   <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{alert.id}</span>
                 </div>

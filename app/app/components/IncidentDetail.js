@@ -63,7 +63,7 @@ export default function IncidentDetail({ incident, units, unitStatuses = {}, clo
         <StatBox label="Em deslocação" value={enroute} color="var(--accent-yellow)" />
         <StatBox
           label="Área aprox."
-          value={incident.brushRadiusKm ? `${incident.brushRadiusKm} km` : '—'}
+          value={(incident.brush_radius_km ?? incident.brushRadiusKm) ? `${incident.brush_radius_km ?? incident.brushRadiusKm} km` : '—'}
           sub="raio estimado"
         />
         <StatBox label="Zonas" value={zones.length} />

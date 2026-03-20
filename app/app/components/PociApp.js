@@ -26,6 +26,7 @@ export default function PociApp({ mode = 'command', lockView = false }) {
     customIncidents, setCustomIncidents, allIncidents,
     drawnZonesByIncident, setDrawnZonesByIncident,
     drawnClosures, setDrawnClosures,
+    deleteZone, deleteClosure,
     demoMode, setDemoMode,
     unitAssignments, unitStatuses,
     assignUnit, unassignUnit, setUnitStatus,
@@ -153,17 +154,11 @@ export default function PociApp({ mode = 'command', lockView = false }) {
   }
 
   function handleDeleteDrawnZone(zoneId) {
-    setDrawnZonesByIncident((prev) => {
-      const updated = {};
-      Object.entries(prev).forEach(([incId, zones]) => {
-        updated[incId] = zones.filter((z) => z.id !== zoneId);
-      });
-      return updated;
-    });
+    deleteZone(zoneId);
   }
 
   function handleDeleteDrawnClosure(closureId) {
-    setDrawnClosures((prev) => prev.filter((c) => c.id !== closureId));
+    deleteClosure(closureId);
   }
 
   function handleNovaOcorrenciaClick() {
@@ -228,8 +223,8 @@ export default function PociApp({ mode = 'command', lockView = false }) {
           id: `CR-${Date.now()}`,
           name: data.name,
           status: data.status,
-          incident: selectedIncidentId,
-          path: pendingDraw.points,
+          incidentId: selectedIncidentId,
+          points: pendingDraw.points,
         },
       ]);
     }

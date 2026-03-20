@@ -1,306 +1,302 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { units as mockUnits, incidents as mockIncidents, alerts as mockAlerts, radioMessages as mockRadioMessages } from '../data/mockData'
+import { getSupabase } from './supabase'
 
-// ── Seed helpers ────────────────────────────────────────────────────────────
-
-function seedIfAbsent() {
-  // Detect stale data: if the first mock unit's ID is not in stored assignments, re-seed everything
-  let stale = false;
-  try {
-    const stored = localStorage.getItem('poci_unitAssignments');
-    if (stored) {
-      const assignments = JSON.parse(stored);
-      stale = mockUnits.length > 0 && !(mockUnits[0].id in assignments);
-    }
-  } catch { stale = true; }
-
-  if (stale) {
-    try { localStorage.removeItem('poci_unitAssignments'); } catch {}
-    try { localStorage.removeItem('poci_unitStatuses'); } catch {}
-    try { localStorage.removeItem('poci_customUnits'); } catch {}
-    try { localStorage.removeItem('poci_opLog'); } catch {}
-  }
-
-  try {
-    if (!localStorage.getItem('poci_unitAssignments')) {
-      const assignments = {};
-      mockUnits.forEach(u => {
-        assignments[u.id] = u.status === 'available' ? null : (u.incident || null);
-      });
-      localStorage.setItem('poci_unitAssignments', JSON.stringify(assignments));
-    }
-  } catch {}
-  try {
-    if (!localStorage.getItem('poci_unitStatuses')) {
-      const statuses = {};
-      mockUnits.forEach(u => { statuses[u.id] = u.status || 'available'; });
-      localStorage.setItem('poci_unitStatuses', JSON.stringify(statuses));
-    }
-  } catch {}
-  try {
-    if (!localStorage.getItem('poci_customUnits')) {
-      localStorage.setItem('poci_customUnits', JSON.stringify([]));
-    }
-  } catch {}
-
-  // Seed alerts
-  try {
-    if (!localStorage.getItem('poci_alerts')) {
-      localStorage.setItem('poci_alerts', JSON.stringify(mockAlerts));
-    }
-  } catch {}
-
-  // Seed operations log with historical entries from mock data
-  try {
-    const existingLog = localStorage.getItem('poci_opLog')
-    if (!existingLog || JSON.parse(existingLog).length === 0) {
-      const now = Date.now()
-      // Spread entries over the last 6 hours, oldest first
-      const assignedUnits = mockUnits.filter(u => u.status !== 'available' && u.incident)
-      const totalEntries = assignedUnits.length
-      const entries = []
-      assignedUnits.forEach((u, i) => {
-        const baseTs = now - (6 * 60 * 60 * 1000) + Math.floor((i / totalEntries) * 5.5 * 60 * 60 * 1000)
-        // Log assignment
-        entries.push({
-          id: `LOG-SEED-${u.id}-assign`,
-          ts: baseTs,
-          type: 'unit_assigned',
-          unitId: u.id,
-          incidentId: u.incident,
-        })
-        // Log status change if not just 'assigned'
-        if (u.status === 'enroute' || u.status === 'onscene') {
-          entries.push({
-            id: `LOG-SEED-${u.id}-status`,
-            ts: baseTs + 5 * 60 * 1000,
-            type: 'status_changed',
-            unitId: u.id,
-            from: 'assigned',
-            to: u.status,
-            incidentId: u.incident,
-          })
-        }
-      })
-      // Incidents created at start of operational period
-      mockIncidents.forEach((inc, i) => {
-        const incTs = now - (8 * 60 * 60 * 1000) + i * 20 * 60 * 1000
-        entries.push({
-          id: `LOG-SEED-INC-${inc.id}`,
-          ts: incTs,
-          type: 'incident_created',
-          incidentId: inc.id,
-          incidentName: inc.name,
-          area: inc.area,
-          status: inc.status,
-        })
-        // Status transitions for non-active incidents
-        if (inc.status === 'controlled') {
-          entries.push({
-            id: `LOG-SEED-INC-STATUS-${inc.id}`,
-            ts: incTs + 3 * 60 * 60 * 1000,
-            type: 'incident_status_changed',
-            incidentId: inc.id,
-            incidentName: inc.name,
-            from: 'active',
-            to: 'controlled',
-          })
-        } else if (inc.status === 'surveillance') {
-          entries.push({
-            id: `LOG-SEED-INC-STATUS-${inc.id}`,
-            ts: incTs + 2 * 60 * 60 * 1000,
-            type: 'incident_status_changed',
-            incidentId: inc.id,
-            incidentName: inc.name,
-            from: 'active',
-            to: 'surveillance',
-          })
-        }
-      })
-
-      // Alerts triggered
-      mockAlerts.forEach((alert, i) => {
-        entries.push({
-          id: `LOG-SEED-ALERT-${alert.id}`,
-          ts: now - (5 * 60 * 60 * 1000) + i * 25 * 60 * 1000,
-          type: 'alert_triggered',
-          alertId: alert.id,
-          alertTitle: alert.title,
-          alertLevel: alert.level,
-          target: alert.target,
-          incidentId: alert.incidentId,
-        })
-      })
-
-      // Radio messages — same source as RadioPanel
-      mockRadioMessages.forEach((m, i) => {
-        entries.push({
-          id: `LOG-SEED-RADIO-${i}`,
-          ts: now - (4 * 60 * 60 * 1000) + i * 28 * 60 * 1000,
-          type: 'radio_message',
-          from: m.from,
-          message: m.msg,
-          incidentId: m.incidentId,
-        })
-      })
-
-      // Weather alert
-      entries.push({
-        id: 'LOG-SEED-WEATHER-1',
-        ts: now - (3 * 60 * 60 * 1000),
-        type: 'weather_alert',
-        description: 'Vento NE 32km/h com rajadas 52km/h. Temperatura 34°C, humidade 18%. Condições extremas.',
-        incidentId: null,
-      })
-
-      // Sort newest first
-      entries.sort((a, b) => b.ts - a.ts)
-      localStorage.setItem('poci_opLog', JSON.stringify(entries.slice(0, 500)))
-    }
-  } catch {}
-
-  // Seed radio messages
-  try {
-    if (!localStorage.getItem('poci_radioMessages')) {
-      localStorage.setItem('poci_radioMessages', JSON.stringify(mockRadioMessages))
-    }
-  } catch {}
-}
+// ── localStorage helpers (scenario state only) ───────────────────────────────
 
 function readLS(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw !== null ? JSON.parse(raw) : fallback
-  } catch {
-    return fallback
-  }
+  try { const r = localStorage.getItem(key); return r !== null ? JSON.parse(r) : fallback } catch { return fallback }
+}
+function writeLS(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)) } catch {}
 }
 
-// ── Hook ────────────────────────────────────────────────────────────────────
+// ── Hook ─────────────────────────────────────────────────────────────────────
 
 export function usePociState() {
-  // ── Migrated from PociApp.js ─────────────────────────────────────────────
-  const [customIncidents, setCustomIncidents] = useState([])
-  const [drawnZonesByIncident, setDrawnZonesByIncident] = useState({})
-  const [drawnClosures, setDrawnClosures] = useState([])
-  const [demoMode, setDemoMode] = useState(true)
+  const supabase = getSupabase()
 
-  // ── New unit state ────────────────────────────────────────────────────────
-  const [unitAssignments, setUnitAssignments] = useState({})
-  const [unitStatuses, setUnitStatuses] = useState({})
-  const [customUnits, setCustomUnits] = useState([])
-  const [opLog, setOpLog] = useState([])
-  const [alerts, setAlerts] = useState([])
-  const [radioMessages, setRadioMessages] = useState([])
-  const [incidentStatusOverrides, setIncidentStatusOverrides] = useState({})
-  const [scenarioActive, setScenarioActive] = useState(false)
-  const [currentStep, setCurrentStep] = useState(0)
+  // ── Server state ──────────────────────────────────────────────────────────
+  const [incidents,   setIncidents]   = useState([])
+  const [units,       setUnits]       = useState([])
+  const [unitStates,  setUnitStates]  = useState([])  // unit_states rows
+  const [zones,       setZones]       = useState([])
+  const [closures,    setClosures]    = useState([])
+  const [alerts,      setAlerts]      = useState([])
+  const [opLog,       setOpLog]       = useState([])
+  const [fireStations, setFireStations] = useState([])
+  const [hydrated,    setHydrated]    = useState(false)
 
-  const channelRef = useRef(null)
-  const mountedRef = useRef(false)
-  const customIncidentsRef = useRef([])
+  // ── Scenario state (localStorage only) ───────────────────────────────────
+  const [demoMode,        setDemoMode]        = useState(true)
+  const [scenarioActive,  setScenarioActive]  = useState(false)
+  const [currentStep,     setCurrentStep]     = useState(0)
   const snapshotsRef = useRef({})
 
-  // ── On mount: seed + read all state ──────────────────────────────────────
+  // ── Refs for use inside callbacks ─────────────────────────────────────────
+  const incidentsRef  = useRef([])
+  const unitsRef      = useRef([])
+  const unitStatesRef = useRef([])
+
+  useEffect(() => { incidentsRef.current  = incidents  }, [incidents])
+  useEffect(() => { unitsRef.current      = units      }, [units])
+  useEffect(() => { unitStatesRef.current = unitStates }, [unitStates])
+
+  // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
-    seedIfAbsent()
+    async function load() {
+      const [
+        { data: inc },
+        { data: u },
+        { data: us },
+        { data: z },
+        { data: cl },
+        { data: al },
+        { data: log },
+        { data: fs },
+      ] = await Promise.all([
+        supabase.from('incidents').select('*'),
+        supabase.from('units').select('*'),
+        supabase.from('unit_states').select('*'),
+        supabase.from('zones').select('*'),
+        supabase.from('closures').select('*'),
+        supabase.from('alerts').select('*').order('created_at', { ascending: false }),
+        supabase.from('op_log').select('*').order('created_at', { ascending: false }).limit(500),
+        supabase.from('fire_stations').select('*'),
+      ])
+      if (inc)  setIncidents(inc)
+      if (u)    setUnits(u)
+      if (us)   setUnitStates(us)
+      if (z)    setZones(z)
+      if (cl)   setClosures(cl)
+      if (al)   setAlerts(al)
+      if (log)  setOpLog(log)
+      if (fs)   setFireStations(fs)
 
-    // Unit state
-    setUnitAssignments(readLS('poci_unitAssignments', {}))
-    setUnitStatuses(readLS('poci_unitStatuses', {}))
-    setCustomUnits(readLS('poci_customUnits', []))
-    setOpLog(readLS('poci_opLog', []))
-    setAlerts(readLS('poci_alerts', mockAlerts))
-    setRadioMessages(readLS('poci_radioMessages', mockRadioMessages))
+      // Restore scenario state from localStorage
+      const ss = readLS('poci_scenario_state', {})
+      if (ss.scenarioActive) setScenarioActive(true)
+      if (typeof ss.currentStep === 'number') setCurrentStep(ss.currentStep)
 
-    // Migrated state (matching existing PociApp.js pattern)
-    const zones = localStorage.getItem('poci_drawnZones')
-    if (zones) { try { setDrawnZonesByIncident(JSON.parse(zones)) } catch {} }
-    const cls = localStorage.getItem('poci_drawnClosures')
-    if (cls) { try { setDrawnClosures(JSON.parse(cls)) } catch {} }
-    const ci = localStorage.getItem('poci_customIncidents')
-    if (ci) { try { setCustomIncidents(JSON.parse(ci)) } catch {} }
-
-    const ss = readLS('poci_scenario_state', {})
-    if (ss.scenarioActive) setScenarioActive(true)
-    if (typeof ss.currentStep === 'number') setCurrentStep(ss.currentStep)
-
-    mountedRef.current = true
-  }, [])
-
-  // ── Persist migrated state on change (existing pattern) ──────────────────
-  useEffect(() => {
-    if (!mountedRef.current) return
-    try { localStorage.setItem('poci_drawnZones', JSON.stringify(drawnZonesByIncident)) } catch {}
-    broadcast()
-  }, [drawnZonesByIncident])
-
-  useEffect(() => {
-    if (!mountedRef.current) return
-    try { localStorage.setItem('poci_drawnClosures', JSON.stringify(drawnClosures)) } catch {}
-    broadcast()
-  }, [drawnClosures])
-
-  useEffect(() => {
-    if (!mountedRef.current) return
-    try { localStorage.setItem('poci_customIncidents', JSON.stringify(customIncidents)) } catch {}
-    broadcast()
-  }, [customIncidents])
-
-  useEffect(() => { customIncidentsRef.current = customIncidents }, [customIncidents])
-
-  // ── BroadcastChannel: re-read all state when another tab writes ───────────
-  useEffect(() => {
-    const channel = new BroadcastChannel('poci')
-    channel.onmessage = () => {
-      setUnitAssignments(readLS('poci_unitAssignments', {}))
-      setUnitStatuses(readLS('poci_unitStatuses', {}))
-      setCustomUnits(readLS('poci_customUnits', []))
-      setCustomIncidents(readLS('poci_customIncidents', []))
-      setDrawnZonesByIncident(readLS('poci_drawnZones', {}))
-      setDrawnClosures(readLS('poci_drawnClosures', []))
-      setOpLog(readLS('poci_opLog', []))
-      setAlerts(readLS('poci_alerts', mockAlerts))
-      setRadioMessages(readLS('poci_radioMessages', []))
+      setHydrated(true)
     }
-    channelRef.current = channel
-    return () => {
-      channelRef.current = null
-      channel.close()
+    load()
+  }, []) // eslint-disable-line
+
+  // ── Realtime subscriptions ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!hydrated) return
+
+    function applyChange(setState, idKey) {
+      return (payload) => {
+        if (payload.eventType === 'DELETE') {
+          setState(prev => prev.filter(r => r[idKey] !== payload.old[idKey]))
+        } else {
+          setState(prev => {
+            const idx = prev.findIndex(r => r[idKey] === payload.new[idKey])
+            if (idx >= 0) { const n = [...prev]; n[idx] = payload.new; return n }
+            return [...prev, payload.new]
+          })
+        }
+      }
     }
-  }, [])
 
-  function broadcast() {
-    try { channelRef.current?.postMessage({ type: 'poci-state-changed' }) } catch {}
-  }
+    const channel = supabase.channel('poci-all')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents'   }, applyChange(setIncidents,  'id'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'units'       }, applyChange(setUnits,      'id'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'unit_states' }, applyChange(setUnitStates, 'unit_id'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'zones'       }, applyChange(setZones,      'id'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'closures'    }, applyChange(setClosures,   'id'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'alerts'      }, applyChange(setAlerts,     'id'))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'op_log' }, (payload) => {
+        setOpLog(prev => [payload.new, ...prev].slice(0, 500))
+      })
+      .subscribe()
 
-  // ── Operations log ────────────────────────────────────────────────────────
+    return () => { supabase.removeChannel(channel) }
+  }, [hydrated]) // eslint-disable-line
 
-  function appendLog(entry) {
-    const logEntry = { id: `LOG-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, ts: Date.now(), ...entry }
-    setOpLog(prev => {
-      const next = [logEntry, ...prev].slice(0, 500)
-      try { localStorage.setItem('poci_opLog', JSON.stringify(next)) } catch {}
-      return next
+  // ── Derived state ─────────────────────────────────────────────────────────
+
+  const unitAssignments = useMemo(() => {
+    const map = {}
+    unitStates.forEach(us => { map[us.unit_id] = us.incident_id ?? null })
+    return map
+  }, [unitStates])
+
+  const unitStatuses = useMemo(() => {
+    const map = {}
+    unitStates.forEach(us => { map[us.unit_id] = us.status })
+    return map
+  }, [unitStates])
+
+  // Normalise unit rows to match the shape components expect (lat/lng from unit_states)
+  const allUnits = useMemo(() =>
+    units.map(u => {
+      const us = unitStates.find(s => s.unit_id === u.id)
+      return {
+        ...u,
+        airKind: u.air_kind,
+        stationId: u.station_id,
+        lat: us?.lat ?? u.base_lat,
+        lng: us?.lng ?? u.base_lng,
+        status: us?.status ?? 'available',
+        incident: us?.incident_id ?? null,
+      }
+    }),
+    [units, unitStates]
+  )
+
+  // Returns units for a given incident — kept as a function for API compatibility with PociApp.js
+  const unitsByIncident = useCallback((incidentId) => {
+    if (!incidentId) return allUnits
+    return allUnits.filter(u => unitAssignments[u.id] === incidentId)
+  }, [allUnits, unitAssignments])
+
+  // Zones grouped by incident_id (shape expected by PociApp)
+  const drawnZonesByIncident = useMemo(() => {
+    const map = {}
+    zones.forEach(z => {
+      map[z.incident_id] = map[z.incident_id] ?? []
+      map[z.incident_id].push({ ...z, radiusKm: z.radius_km })
     })
-  }
+    return map
+  }, [zones])
 
-  function clearLog() {
-    setOpLog([])
-    try { localStorage.removeItem('poci_opLog') } catch {}
-    broadcast()
-  }
+  // ── Write operations ──────────────────────────────────────────────────────
+
+  const appendLog = useCallback(async (entry) => {
+    const { type, incidentId, unitId, ...rest } = entry
+    await supabase.from('op_log').insert({
+      type,
+      payload: rest,
+      incident_id: incidentId ?? null,
+      unit_id: unitId ?? null,
+    })
+  }, [supabase])
+
+  const assignUnit = useCallback(async (unitId, incidentId) => {
+    // Optimistic update
+    setUnitStates(prev => prev.map(us =>
+      us.unit_id === unitId ? { ...us, incident_id: incidentId, status: 'assigned' } : us
+    ))
+    await supabase.from('unit_states').update({ incident_id: incidentId, status: 'assigned' }).eq('unit_id', unitId)
+    await appendLog({ type: 'unit_assigned', unitId, incidentId })
+  }, [supabase, appendLog])
+
+  const unassignUnit = useCallback(async (unitId) => {
+    setUnitStates(prev => prev.map(us =>
+      us.unit_id === unitId ? { ...us, incident_id: null, status: 'available' } : us
+    ))
+    await supabase.from('unit_states').update({ incident_id: null, status: 'available' }).eq('unit_id', unitId)
+    await appendLog({ type: 'unit_unassigned', unitId })
+  }, [supabase, appendLog])
+
+  const setUnitStatus = useCallback(async (unitId, status) => {
+    setUnitStates(prev => prev.map(us =>
+      us.unit_id === unitId ? { ...us, status } : us
+    ))
+    await supabase.from('unit_states').update({ status }).eq('unit_id', unitId)
+    const us = unitStatesRef.current.find(s => s.unit_id === unitId)
+    await appendLog({ type: 'status_changed', unitId, incidentId: us?.incident_id ?? null, payload: { to: status } })
+  }, [supabase, appendLog])
+
+  const addAlert = useCallback(async (alert) => {
+    const { id: _ignore, ...rest } = alert
+    const row = {
+      incident_id: rest.incidentId ?? null,
+      title: rest.title,
+      level: rest.level,
+      message: rest.message ?? null,
+      radius: rest.radius ?? null,
+      channels: rest.channels ?? [],
+      status: rest.status ?? 'active',
+    }
+    await supabase.from('alerts').insert(row)
+  }, [supabase])
+
+  const resolveAlert = useCallback(async (alertId) => {
+    setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, status: 'resolved' } : a))
+    await supabase.from('alerts').update({ status: 'resolved' }).eq('id', alertId)
+  }, [supabase])
+
+  // Zones — setDrawnZonesByIncident called by ZoneModal with the full updated map
+  const setDrawnZonesByIncident = useCallback(async (updaterOrMap) => {
+    // Accept either a value or an updater function (React pattern)
+    const next = typeof updaterOrMap === 'function'
+      ? updaterOrMap(drawnZonesByIncident)
+      : updaterOrMap
+
+    // Diff: find added zones (in next but not in current zones by id)
+    const allCurrentIds = new Set(zones.map(z => z.id))
+    for (const [incidentId, zoneList] of Object.entries(next)) {
+      for (const z of (zoneList ?? [])) {
+        if (!allCurrentIds.has(z.id)) {
+          await supabase.from('zones').insert({
+            id: z.id ?? undefined,
+            incident_id: incidentId,
+            name: z.name,
+            type: z.type,
+            radius_km: z.radiusKm ?? null,
+            points: z.points ?? null,
+          })
+        }
+      }
+    }
+  }, [supabase, zones, drawnZonesByIncident])
+
+  const deleteZone = useCallback(async (zoneId) => {
+    setZones(prev => prev.filter(z => z.id !== zoneId))
+    await supabase.from('zones').delete().eq('id', zoneId)
+  }, [supabase])
+
+  // Closures
+  const setDrawnClosures = useCallback(async (updaterOrList) => {
+    const next = typeof updaterOrList === 'function' ? updaterOrList(closures) : updaterOrList
+    const allCurrentIds = new Set(closures.map(c => c.id))
+    for (const cl of next) {
+      if (!allCurrentIds.has(cl.id)) {
+        await supabase.from('closures').insert({
+          id: cl.id ?? undefined,
+          incident_id: cl.incidentId ?? null,
+          name: cl.name,
+          status: cl.status ?? 'active',
+          points: cl.points ?? [],
+        })
+      }
+    }
+  }, [supabase, closures])
+
+  const deleteClosure = useCallback(async (closureId) => {
+    setClosures(prev => prev.filter(c => c.id !== closureId))
+    await supabase.from('closures').delete().eq('id', closureId)
+  }, [supabase])
+
+  // Incidents (for Nova Ocorrência and scenario engine)
+  const setCustomIncidents = useCallback(async (updaterOrList) => {
+    const prev = incidentsRef.current
+    const next = typeof updaterOrList === 'function' ? updaterOrList(prev) : updaterOrList
+    const newIncs = next.filter(i => !prev.find(p => p.id === i.id))
+    for (const inc of newIncs) {
+      await supabase.from('incidents').insert({
+        id: inc.id,
+        name: inc.name,
+        status: inc.status ?? 'active',
+        lat: inc.lat,
+        lng: inc.lng,
+        area: inc.area ?? null,
+        type: inc.type ?? null,
+        brush_radius_km: inc.brushRadiusKm ?? null,
+        wind_deg: inc.windDeg ?? null,
+      })
+    }
+  }, [supabase])
+
+  // ── Scenario engine (mirrors old logic but writes to Supabase) ────────────
 
   function saveScenarioState(active, step) {
-    try { localStorage.setItem('poci_scenario_state', JSON.stringify({ scenarioActive: active, currentStep: step })) } catch {}
-  }
-
-  function startScenario() {
-    setScenarioActive(true)
-    setCurrentStep(0)
-    saveScenarioState(true, 0)
+    writeLS('poci_scenario_state', { scenarioActive: active, currentStep: step })
   }
 
   function terminateScenario() {
@@ -310,68 +306,52 @@ export function usePociState() {
   }
 
   function executeStep(step, callbacks = {}) {
-    const { startUnitMovement } = callbacks
+    const { startUnitMovement, selectIncident } = callbacks
+
+    function resolveIncidentId(id) {
+      if (!id) return id
+      return snapshotsRef.current[id]?.incidentId ?? id
+    }
 
     switch (step.type) {
       case 'create_incident': {
         const id = `INC-DEMO-${Date.now()}`
         const incident = { ...step.params, id }
         snapshotsRef.current[step.id] = { incidentId: id }
-        setCustomIncidents(prev => {
-          const next = [...prev, incident]
-          try { localStorage.setItem('poci_customIncidents', JSON.stringify(next)) } catch {}
-          return next
-        })
-        appendLog({ type: 'incident_created', incidentId: id, incidentName: incident.name, area: incident.name, status: incident.status })
-        broadcast()
+        setCustomIncidents(prev => [...prev, incident])
+        if (selectIncident) selectIncident(id)
+        appendLog({ type: 'incident_created', incidentId: id, incidentName: incident.name })
         break
       }
       case 'assign_unit': {
-        const allNow = [...mockUnits, ...customUnits]
-        const unit = allNow.find(u => u.id === step.params.unitId)
-        snapshotsRef.current[step.id] = { priorPos: unit ? [unit.lat, unit.lng] : null }
-        assignUnit(step.params.unitId, step.params.incidentId) // logs internally
+        const resolvedIncId = resolveIncidentId(step.params.incidentId)
+        const unit = unitsRef.current.find(u => u.id === step.params.unitId)
+        snapshotsRef.current[step.id] = { priorIncident: unitAssignments[step.params.unitId] }
+        assignUnit(step.params.unitId, resolvedIncId)
         if (startUnitMovement && unit) {
-          const allIncs = [
-            ...mockIncidents.map(i => ({ ...i, status: incidentStatusOverrides[i.id] ?? i.status })),
-            ...customIncidentsRef.current,
-          ]
-          const incident = allIncs.find(i => i.id === step.params.incidentId)
-          if (incident) startUnitMovement(unit, incident)
+          // useUnitAnimation.startUnitMovement(unit, incident, fromPos?) — pass full objects
+          const inc = incidentsRef.current.find(i => i.id === resolvedIncId)
+          if (inc) startUnitMovement(unit, inc)
         }
         break
       }
-      case 'update_incident_status': {
-        const allIncs = [
-          ...mockIncidents.map(i => ({ ...i, status: incidentStatusOverrides[i.id] ?? i.status })),
-          ...customIncidentsRef.current,
-        ]
-        const inc = allIncs.find(i => i.id === step.params.incidentId)
-        snapshotsRef.current[step.id] = { priorStatus: inc?.status }
-        updateIncidentStatus(step.params.incidentId, step.params.status) // logs internally
+      case 'set_unit_status': {
+        const { unitId, status } = step.params
+        snapshotsRef.current[step.id] = { priorStatus: unitStatuses[unitId] }
+        setUnitStatus(unitId, status)
         break
       }
-      case 'close_road': {
-        setDrawnClosures(prev => {
-          const next = [...prev, step.params]
-          try { localStorage.setItem('poci_drawnClosures', JSON.stringify(next)) } catch {}
-          return next
-        })
-        appendLog({ type: 'closure_drawn', incidentId: step.params.incident, closureName: step.params.name })
-        broadcast()
+      case 'set_incident_status': {
+        const resolvedIncId = resolveIncidentId(step.params.incidentId)
+        snapshotsRef.current[step.id] = {
+          priorStatus: incidentsRef.current.find(i => i.id === resolvedIncId)?.status,
+        }
+        supabase.from('incidents').update({ status: step.params.status }).eq('id', resolvedIncId)
+        appendLog({ type: 'incident_status_changed', incidentId: resolvedIncId, to: step.params.status })
         break
       }
-      case 'create_alert': {
-        const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
-          ? crypto.randomUUID()
-          : Date.now().toString(36) + Math.random().toString(36).slice(2)
-        snapshotsRef.current[step.id] = { alertId: id }
-        addAlert({ id, ...step.params, status: 'active' })
-        appendLog({ type: 'alert_triggered', alertId: id, alertTitle: step.params.title, alertLevel: step.params.level, target: `Raio ${step.params.radius || 0} km`, incidentId: step.params.incidentId })
-        break
-      }
-      case 'send_radio': {
-        addRadioMessage(step.params) // logs internally
+      case 'radio_message': {
+        appendLog({ type: 'radio_message', from: step.params.from, message: step.params.message, incidentId: resolveIncidentId(step.params.incidentId) })
         break
       }
       case 'narrative':
@@ -380,220 +360,93 @@ export function usePociState() {
     }
 
     setCurrentStep(prev => {
-      const next = prev + 1
-      saveScenarioState(true, next)
-      return next
+      saveScenarioState(true, prev + 1)
+      return prev + 1
     })
+    if (!scenarioActive) setScenarioActive(true)
   }
 
-  function revertStep(step, callbacks = {}) {
-    const { stopUnitMovement } = callbacks
+  function revertStep(step) {
+    const snap = snapshotsRef.current[step.id]
+    if (!snap) return
 
     switch (step.type) {
-      case 'create_incident': {
-        const incidentId = snapshotsRef.current[step.id]?.incidentId
-        if (incidentId) {
-          setCustomIncidents(prev => {
-            const next = prev.filter(i => i.id !== incidentId)
-            try { localStorage.setItem('poci_customIncidents', JSON.stringify(next)) } catch {}
-            return next
-          })
-          broadcast()
-        }
+      case 'assign_unit':
+        if (snap.priorIncident) assignUnit(step.params.unitId, snap.priorIncident)
+        else unassignUnit(step.params.unitId)
+        break
+      case 'set_unit_status':
+        if (snap.priorStatus) setUnitStatus(step.params.unitId, snap.priorStatus)
+        break
+      case 'set_incident_status': {
+        const resolvedIncId = snapshotsRef.current[step.id]?.resolvedIncId ?? step.params.incidentId
+        if (snap.priorStatus) supabase.from('incidents').update({ status: snap.priorStatus }).eq('id', resolvedIncId)
         break
       }
-      case 'assign_unit': {
-        const priorPos = snapshotsRef.current[step.id]?.priorPos
-        unassignUnit(step.params.unitId)
-        if (stopUnitMovement) stopUnitMovement(step.params.unitId, priorPos)
-        break
-      }
-      case 'update_incident_status': {
-        if (snapshotsRef.current[step.id]?.priorStatus != null) {
-          updateIncidentStatus(step.params.incidentId, snapshotsRef.current[step.id].priorStatus) // logs intentionally
-        }
-        break
-      }
-      case 'create_alert': {
-        if (snapshotsRef.current[step.id]?.alertId) resolveAlert(snapshotsRef.current[step.id].alertId)
-        break
-      }
-      case 'close_road':
-      case 'send_radio':
-      case 'narrative':
       default:
         break
     }
 
     setCurrentStep(prev => {
       const next = Math.max(0, prev - 1)
-      saveScenarioState(true, next)
+      saveScenarioState(scenarioActive, next)
       return next
     })
   }
 
-  // ── Alert actions ─────────────────────────────────────────────────────────
-
-  function addAlert(alert) {
-    setAlerts(prev => {
-      const next = [alert, ...prev]
-      try { localStorage.setItem('poci_alerts', JSON.stringify(next)) } catch {}
-      broadcast()
-      return next
-    })
-  }
-
-  function addRadioMessage(msg) {
-    const entry = { id: `RAD-${Date.now()}`, ...msg }
-    setRadioMessages(prev => {
-      const next = [entry, ...prev]
-      try { localStorage.setItem('poci_radioMessages', JSON.stringify(next)) } catch {}
-      broadcast()
-      return next
-    })
-    appendLog({ type: 'radio_message', from: msg.from, message: msg.message, incidentId: msg.incidentId })
-  }
-
-  function resolveAlert(id) {
-    setAlerts(prev => {
-      const next = prev.map(a => a.id === id ? { ...a, status: 'resolved' } : a)
-      try { localStorage.setItem('poci_alerts', JSON.stringify(next)) } catch {}
-      broadcast()
-      return next
-    })
-    appendLog({ type: 'alert_resolved', alertId: id })
-  }
-
-  // ── Actions ───────────────────────────────────────────────────────────────
-
-  function assignUnit(unitId, incidentId) {
-    appendLog({ type: 'unit_assigned', unitId, incidentId })
-    let savedAssignments
-    setUnitAssignments(prev => {
-      const next = { ...prev, [unitId]: incidentId }
-      try { localStorage.setItem('poci_unitAssignments', JSON.stringify(next)) } catch {}
-      savedAssignments = next
-      return next
-    })
-    setUnitStatuses(prev => {
-      const next = { ...prev, [unitId]: 'assigned' }
-      try { localStorage.setItem('poci_unitStatuses', JSON.stringify(next)) } catch {}
-      return next
-    })
-    broadcast()
-  }
-
-  function unassignUnit(unitId) {
-    appendLog({ type: 'unit_unassigned', unitId, prevIncidentId: unitAssignments[unitId] || null })
-    setUnitAssignments(prev => {
-      const next = { ...prev, [unitId]: null }
-      try { localStorage.setItem('poci_unitAssignments', JSON.stringify(next)) } catch {}
-      return next
-    })
-    setUnitStatuses(prev => {
-      const next = { ...prev, [unitId]: 'available' }
-      try { localStorage.setItem('poci_unitStatuses', JSON.stringify(next)) } catch {}
-      return next
-    })
-    broadcast()
-  }
-
-  function setUnitStatus(unitId, status) {
-    appendLog({ type: 'status_changed', unitId, from: unitStatuses[unitId] || 'available', to: status, incidentId: unitAssignments[unitId] || null })
-    setUnitStatuses(prev => {
-      const next = { ...prev, [unitId]: status }
-      try { localStorage.setItem('poci_unitStatuses', JSON.stringify(next)) } catch {}
-      return next
-    })
-    broadcast()
-  }
-
-  function addCustomUnit(unit) {
-    appendLog({ type: 'unit_added', unitId: unit.id, unitName: unit.name, unitType: unit.type })
-    setCustomUnits(prev => {
-      const next = [...prev, unit]
-      try { localStorage.setItem('poci_customUnits', JSON.stringify(next)) } catch {}
-      return next
-    })
-    setUnitAssignments(prev => {
-      const next = { ...prev, [unit.id]: null }
-      try { localStorage.setItem('poci_unitAssignments', JSON.stringify(next)) } catch {}
-      return next
-    })
-    setUnitStatuses(prev => {
-      const next = { ...prev, [unit.id]: 'available' }
-      try { localStorage.setItem('poci_unitStatuses', JSON.stringify(next)) } catch {}
-      return next
-    })
-    broadcast()
-  }
-
-  function updateIncidentStatus(incidentId, newStatus) {
-    const isCustom = customIncidents.some(i => i.id === incidentId)
-    const inc = customIncidents.find(i => i.id === incidentId) ||
-      mockIncidents.map(i => ({ ...i, status: incidentStatusOverrides[i.id] ?? i.status })).find(i => i.id === incidentId)
-    appendLog({ type: 'incident_status_changed', incidentId, incidentName: inc?.name || incidentId, from: inc?.status || '?', to: newStatus })
-    if (isCustom) {
-      setCustomIncidents(prev => prev.map(i => i.id === incidentId ? { ...i, status: newStatus } : i))
-    } else {
-      setIncidentStatusOverrides(prev => ({ ...prev, [incidentId]: newStatus }))
-    }
-    broadcast()
-  }
-
-  // ── Derived ───────────────────────────────────────────────────────────────
-
-  const allUnits = useMemo(() => [...mockUnits, ...customUnits], [customUnits])
-
-  const unitsByIncident = useCallback(
-    (incidentId) => allUnits.filter(u => {
-      const a = unitAssignments[u.id];
-      // Fall back to u.incident when not yet in state (e.g. stale localStorage on first load)
-      return a !== undefined ? a === incidentId : u.incident === incidentId;
-    }),
-    [allUnits, unitAssignments]
+  // ── Normalise op_log rows to match legacy shape ───────────────────────────
+  // Legacy code reads e.ts (timestamp ms), e.from, e.message, e.incidentId etc.
+  // New rows have e.created_at (ISO) and e.payload (jsonb)
+  const normalisedOpLog = useMemo(() =>
+    opLog.map(e => ({
+      ...e,
+      ...e.payload,
+      ts: e.ts ?? new Date(e.created_at).getTime(),
+      incidentId: e.incidentId ?? e.incident_id ?? e.payload?.incidentId ?? null,
+      unitId: e.unitId ?? e.unit_id ?? e.payload?.unitId ?? null,
+    })),
+    [opLog]
   )
 
-  const availableUnits = useMemo(
-    () => allUnits.filter(u => !unitAssignments[u.id]),
-    [allUnits, unitAssignments]
+  // ── Normalise closures to match legacy shape (incidentId camelCase) ────────
+  const normalisedClosures = useMemo(() =>
+    closures.map(c => ({ ...c, incidentId: c.incident_id })),
+    [closures]
   )
 
   return {
-    // Migrated
-    customIncidents, setCustomIncidents,
-    drawnZonesByIncident, setDrawnZonesByIncident,
-    drawnClosures, setDrawnClosures,
+    // Data
+    allIncidents: incidents,
+    customIncidents: [],          // compatibility — all incidents now in DB
+    setCustomIncidents,
+    allUnits,
+    unitAssignments,
+    unitStatuses,
+    unitsByIncident,
+    drawnZonesByIncident,
+    setDrawnZonesByIncident,
+    drawnClosures: normalisedClosures,
+    setDrawnClosures,
+    alerts,
+    opLog: normalisedOpLog,
+    fireStations,
+
+    // Mutations
+    assignUnit,
+    unassignUnit,
+    setUnitStatus,
+    appendLog,
+    addAlert,
+    resolveAlert,
+    deleteZone,
+    deleteClosure,
+
+    // Scenario
     demoMode, setDemoMode,
-
-    // Unit state
-    unitAssignments, unitStatuses, customUnits,
-
-    // Actions
-    assignUnit, unassignUnit, setUnitStatus, addCustomUnit, updateIncidentStatus,
-
-    // Derived
-    allUnits, unitsByIncident, availableUnits,
-    allIncidents: useMemo(
-      () => [
-        ...mockIncidents.map(i => ({ ...i, status: incidentStatusOverrides[i.id] ?? i.status })),
-        ...customIncidents,
-      ],
-      [customIncidents, incidentStatusOverrides]
-    ),
-
-    // Operations log
-    opLog, clearLog, appendLog,
-
-    // Alerts
-    alerts, addAlert, resolveAlert,
-
-    // Radio messages
-    radioMessages, addRadioMessage,
-
-    // Scenario engine
     scenarioActive, currentStep,
-    startScenario, terminateScenario,
+    terminateScenario,
     executeStep, revertStep,
+
+    hydrated,
   }
 }

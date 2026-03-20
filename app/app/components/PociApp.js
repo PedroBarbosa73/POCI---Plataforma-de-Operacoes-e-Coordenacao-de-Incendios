@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { incidents, closures, weather, initialZones } from '../data/mockData';
+import { useRouter } from 'next/navigation';
 import { usePociState } from '../lib/usePociState';
 import { useUnitAnimation } from '../lib/useUnitAnimation';
 import MapView from './MapView';
@@ -21,22 +21,26 @@ import IncidentDetail from './IncidentDetail';
 import NovaOcorrenciaModal from './NovaOcorrenciaModal';
 
 export default function PociApp({ mode = 'command', lockView = false }) {
+  const router = useRouter();
   const {
-    customIncidents, setCustomIncidents,
+    customIncidents, setCustomIncidents, allIncidents,
     drawnZonesByIncident, setDrawnZonesByIncident,
     drawnClosures, setDrawnClosures,
     demoMode, setDemoMode,
     unitAssignments, unitStatuses,
-    assignUnit, unassignUnit,
+    assignUnit, unassignUnit, setUnitStatus,
     allUnits, unitsByIncident,
     appendLog,
     alerts,
+    fireStations,
     scenarioActive, currentStep,
     terminateScenario,
     executeStep, revertStep,
   } = usePociState()
 
-  const { animatedPositions, startUnitMovement, stopUnitMovement } = useUnitAnimation()
+  const { animatedPositions, startUnitMovement, stopUnitMovement } = useUnitAnimation({
+    onUnitArrived: (unitId) => setUnitStatus(unitId, 'onscene'),
+  })
 
   const [view, setView] = useState(lockView ? mode : 'command');
   const isPublic = view === 'public';
@@ -51,6 +55,7 @@ export default function PociApp({ mode = 'command', lockView = false }) {
   const [pendingPlacement, setPendingPlacement] = useState(null);
 
   const [scenarioSteps, setScenarioSteps] = useState([])
+  const [presentationMode, setPresentationMode] = useState(false)
 
   useEffect(() => {
     try {
@@ -59,13 +64,15 @@ export default function PociApp({ mode = 'command', lockView = false }) {
     } catch {}
   }, [])
 
-  const zonesByIncident = useMemo(() => {
-    const merged = { ...initialZones };
-    Object.entries(drawnZonesByIncident).forEach(([id, zones]) => {
-      merged[id] = [...(merged[id] || []), ...zones];
-    });
-    return merged;
-  }, [drawnZonesByIncident]);
+  // During demo: if no incident is selected but a demo incident exists, auto-select it
+  useEffect(() => {
+    if (!scenarioActive) return
+    if (selectedIncidentId) return
+    const demoInc = customIncidents.find(i => i.id?.startsWith('INC-DEMO-'))
+    if (demoInc) setSelectedIncidentId(demoInc.id)
+  }, [scenarioActive, selectedIncidentId, customIncidents])
+
+  const zonesByIncident = drawnZonesByIncident;
   const [visiblePanels, setVisiblePanels] = useState({
     incidents: true, zones: true, closures: true,
     units: true, alerts: true, weather: true, radio: true,
@@ -84,7 +91,7 @@ export default function PociApp({ mode = 'command', lockView = false }) {
     return () => window.removeEventListener('poci:nova-ocorrencia', handler);
   }, []);
 
-  const allIncidents = useMemo(() => [...incidents, ...customIncidents], [customIncidents]);
+  // allIncidents comes from usePociState — single source of truth including status overrides
 
   const visibleIncidents = useMemo(() => {
     if (!selectedIncidentId) return allIncidents;
@@ -97,9 +104,8 @@ export default function PociApp({ mode = 'command', lockView = false }) {
   }, [selectedIncidentId, allUnits, unitsByIncident]);
 
   const visibleClosures = useMemo(() => {
-    const allClosures = [...closures, ...drawnClosures];
-    if (!selectedIncidentId) return allClosures;
-    return allClosures.filter((c) => c.incident === selectedIncidentId);
+    if (!selectedIncidentId) return drawnClosures;
+    return drawnClosures.filter((c) => c.incidentId === selectedIncidentId || c.incident_id === selectedIncidentId);
   }, [selectedIncidentId, drawnClosures]);
 
   const visibleZones = useMemo(() => {
@@ -111,6 +117,13 @@ export default function PociApp({ mode = 'command', lockView = false }) {
     () => allIncidents.find((inc) => inc.id === selectedIncidentId) || null,
     [selectedIncidentId, allIncidents]
   );
+
+  // Safety net: if selectedIncidentId points to an incident that no longer exists, clear it
+  useEffect(() => {
+    if (selectedIncidentId && !selectedIncident) {
+      setSelectedIncidentId(null)
+    }
+  }, [selectedIncidentId, selectedIncident])
 
   function handleSelectIncident(id) {
     setSelectedIncidentId(id);
@@ -177,10 +190,15 @@ export default function PociApp({ mode = 'command', lockView = false }) {
     setPendingPlacement(null);
   }
 
+  function handleDemoReset() {
+    terminateScenario()
+    router.push('/demo')
+  }
+
   function handleDemoNext() {
     const step = scenarioSteps[currentStep]
     if (!step) return
-    executeStep(step, { startUnitMovement })
+    executeStep(step, { startUnitMovement, selectIncident: setSelectedIncidentId })
   }
 
   function handleDemoPrev() {
@@ -219,7 +237,7 @@ export default function PociApp({ mode = 'command', lockView = false }) {
   }
 
   return (
-    <div className="app-wrapper">
+    <div className={`app-wrapper${presentationMode ? ' presentation-mode' : ''}`}>
       <section className="map-area">
         <MapView
           ref={mapRef}
@@ -239,17 +257,22 @@ export default function PociApp({ mode = 'command', lockView = false }) {
           allUnits={allUnits}
           unitAssignments={unitAssignments}
           animatedPositions={animatedPositions}
+          incidentLat={selectedIncident?.lat}
+          incidentLng={selectedIncident?.lng}
+          allIncidents={allIncidents}
+          allFireStations={fireStations}
         />
 
         {/* ── Left sidebar ── */}
         <aside className="sidebar sidebar-left">
-          {!isPublic && selectedIncidentId ? (
+          {!isPublic && selectedIncidentId && selectedIncident ? (
             <IncidentDetail
               incident={selectedIncident}
               units={visibleUnits}
               closures={visibleClosures}
               zones={visibleZones}
-              weather={weather}
+              weatherLat={selectedIncident?.lat}
+              weatherLng={selectedIncident?.lng}
               onClose={handleClearSelection}
               visiblePanels={visiblePanels}
               onDeleteZone={handleDeleteDrawnZone}
@@ -333,6 +356,9 @@ export default function PociApp({ mode = 'command', lockView = false }) {
           onNext={handleDemoNext}
           onPrev={handleDemoPrev}
           onTerminate={terminateScenario}
+          onReset={handleDemoReset}
+          presentationMode={presentationMode}
+          onTogglePresentation={() => setPresentationMode(v => !v)}
         />
       )}
     </div>

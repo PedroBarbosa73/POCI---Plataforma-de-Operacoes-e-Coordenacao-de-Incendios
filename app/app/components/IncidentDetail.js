@@ -31,7 +31,7 @@ function StatBox({ label, value, sub, color }) {
   );
 }
 
-export default function IncidentDetail({ incident, units, unitStatuses = {}, closures, zones, weather, onClose, visiblePanels = {}, onDeleteZone, onDeleteClosure, drawnClosureIds = new Set() }) {
+export default function IncidentDetail({ incident, units, unitStatuses = {}, closures, zones, weatherLat, weatherLng, onClose, visiblePanels = {}, onDeleteZone, onDeleteClosure, drawnClosureIds = new Set(), onDrawZone, onDrawClosure }) {
   const onscene = units.filter((u) => (unitStatuses[u.id] || u.status) === 'onscene').length;
   const enroute = units.filter((u) => (unitStatuses[u.id] || u.status) === 'enroute').length;
 
@@ -50,7 +50,11 @@ export default function IncidentDetail({ incident, units, unitStatuses = {}, clo
           <span className="inc-detail-id">{incident.id}</span>
           <span className="inc-detail-area">{incident.area}</span>
         </div>
-        <div className="inc-detail-updated">Atualizado {incident.updated}</div>
+        <div className="inc-detail-updated">
+          Atualizado {incident.updated_at
+            ? new Date(incident.updated_at).toLocaleString('pt-PT', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
+            : incident.updated ?? '—'}
+        </div>
       </div>
 
       {/* Key stats */}
@@ -123,9 +127,8 @@ export default function IncidentDetail({ incident, units, unitStatuses = {}, clo
         </div>
       )}
 
-      {/* Weather and radio — moved here so right sidebar stays focused on units/alerts */}
-      {visiblePanels.weather !== false && weather && <WeatherPanel weather={weather} />}
-      {visiblePanels.radio !== false && <RadioPanel />}
+      {visiblePanels.weather !== false && <WeatherPanel lat={weatherLat} lng={weatherLng} />}
+      {visiblePanels.radio !== false && <RadioPanel incidentId={incident?.id} />}
     </div>
   );
 }

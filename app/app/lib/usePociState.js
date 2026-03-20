@@ -199,7 +199,7 @@ export function usePociState() {
     ))
     await supabase.from('unit_states').update({ status }).eq('unit_id', unitId)
     const us = unitStatesRef.current.find(s => s.unit_id === unitId)
-    await appendLog({ type: 'status_changed', unitId, incidentId: us?.incident_id ?? null, payload: { to: status } })
+    await appendLog({ type: 'status_changed', unitId, incidentId: us?.incident_id ?? null, to: status })
   }, [supabase, appendLog])
 
   const addAlert = useCallback(async (alert) => {
@@ -345,6 +345,7 @@ export function usePociState() {
         const resolvedIncId = resolveIncidentId(step.params.incidentId)
         snapshotsRef.current[step.id] = {
           priorStatus: incidentsRef.current.find(i => i.id === resolvedIncId)?.status,
+          resolvedIncId,
         }
         supabase.from('incidents').update({ status: step.params.status }).eq('id', resolvedIncId)
         appendLog({ type: 'incident_status_changed', incidentId: resolvedIncId, to: step.params.status })
@@ -394,6 +395,36 @@ export function usePociState() {
     })
   }
 
+  // ── Missing exports ───────────────────────────────────────────────────────
+
+  const clearLog = useCallback(() => {
+    // no-op: op_log is persistent in Supabase; clearing not supported
+  }, [])
+
+  function startScenario() {
+    setScenarioActive(true)
+    saveScenarioState(true, currentStep)
+  }
+
+  const addCustomUnit = useCallback(async (unit) => {
+    await supabase.from('units').insert({
+      id: unit.id,
+      name: unit.name,
+      type: unit.type,
+      air_kind: unit.airKind ?? null,
+      base_lat: unit.lat ?? null,
+      base_lng: unit.lng ?? null,
+      station_id: unit.stationId ?? null,
+    })
+    await supabase.from('unit_states').insert({
+      unit_id: unit.id,
+      incident_id: null,
+      status: 'available',
+      lat: unit.lat ?? null,
+      lng: unit.lng ?? null,
+    })
+  }, [supabase])
+
   // ── Normalise op_log rows to match legacy shape ───────────────────────────
   // Legacy code reads e.ts (timestamp ms), e.from, e.message, e.incidentId etc.
   // New rows have e.created_at (ISO) and e.payload (jsonb)
@@ -440,10 +471,13 @@ export function usePociState() {
     resolveAlert,
     deleteZone,
     deleteClosure,
+    clearLog,
+    addCustomUnit,
 
     // Scenario
     demoMode, setDemoMode,
     scenarioActive, currentStep,
+    startScenario,
     terminateScenario,
     executeStep, revertStep,
 

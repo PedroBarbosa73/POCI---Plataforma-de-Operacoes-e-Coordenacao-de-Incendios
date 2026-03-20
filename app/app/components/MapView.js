@@ -1,7 +1,6 @@
 'use client';
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { incidents, units, closures, fireStations } from '../data/mockData';
 import { buildIrregularPerimeter, mapIconHtml, unitIconHtml, unitTypeColor, stationIconHtml } from '../lib/mapUtils';
 
 const MapView = forwardRef(function MapView(
@@ -22,6 +21,10 @@ const MapView = forwardRef(function MapView(
     allUnits,
     unitAssignments = {},
     animatedPositions = {},
+    incidentLat,
+    incidentLng,
+    allIncidents = [],
+    allFireStations = [],
   },
   ref
 ) {
@@ -61,6 +64,7 @@ const MapView = forwardRef(function MapView(
   const [mapReady, setMapReady] = useState(false);
   const [clusterEnabled, setClusterEnabled] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [windyOpen, setWindyOpen] = useState(false);
 
   function unitStatusColor(status) {
     const map = { available: '#9ca3af', assigned: '#eab308', enroute: '#f97316', onscene: '#ef4444' }
@@ -154,7 +158,7 @@ const MapView = forwardRef(function MapView(
   // Expose focus methods to parent via ref
   useImperativeHandle(ref, () => ({
     focusIncident(incidentId) {
-      const allIncs = [...incidents, ...(customIncidentsRef.current || [])];
+      const allIncs = [...allIncidents, ...(customIncidentsRef.current || [])];
       const incident = allIncs.find((i) => i.id === incidentId);
       if (!incident || !mapRef.current) return;
       mapRef.current.setView([incident.lat, incident.lng], 12, { animate: true });
@@ -162,7 +166,7 @@ const MapView = forwardRef(function MapView(
     focusUnit(unitId) {
       const marker = unitMarkersRef.current[unitId]
       if (!marker || !mapRef.current) return
-      mapRef.current.setView(marker.getLatLng(), 10, { animate: true })
+      mapRef.current.setView(marker.getLatLng(), 15, { animate: true })
     },
     focusClosure(closureId) {
       const layer = closureLayersRef.current[closureId];
@@ -236,7 +240,7 @@ const MapView = forwardRef(function MapView(
       drawnClosuresLayerRef.current = drawnClosuresLayer;
 
       riskOverlaysRef.current = {};
-      incidents.forEach((incident) => {
+      allIncidents.forEach((incident) => {
         const perimeter = buildIrregularPerimeter(incident);
         const overlay = L.polygon(perimeter, {
           color: '#ff3b2f',
@@ -256,7 +260,7 @@ const MapView = forwardRef(function MapView(
       };
 
       incidentMarkersRef.current = {};
-      incidents.forEach((incident) => {
+      allIncidents.forEach((incident) => {
         const color = incidentColors[incident.status] || '#ffffff';
         const icon = L.divIcon({
           className: 'map-icon',
@@ -272,7 +276,7 @@ const MapView = forwardRef(function MapView(
       });
 
       unitMarkersRef.current = {};
-      units.forEach((unit) => {
+      allUnits.forEach((unit) => {
         const status = unitStatusesRef.current[unit.id] || unit.status || 'available'
         const statusColor = unitStatusColor(status)
         const typeColor = unitTypeColor(unit.type)
@@ -292,8 +296,8 @@ const MapView = forwardRef(function MapView(
       });
 
       closureLayersRef.current = {};
-      closures.forEach((closure) => {
-        const line = L.polyline(closure.path, {
+      drawnClosures.forEach((closure) => {
+        const line = L.polyline(closure.path ?? closure.points ?? [], {
           color: closure.status === 'active' ? '#ff3b3b' : '#ffd166',
           weight: 3,
           dashArray: '6 6',
@@ -305,7 +309,7 @@ const MapView = forwardRef(function MapView(
 
       // ── Fire stations layer ──────────────────────────────────────────
       const stationsLayer = L.layerGroup(); // OFF by default (not added to map)
-      fireStations.forEach((station) => {
+      allFireStations.forEach((station) => {
         const icon = L.divIcon({
           className: 'map-icon map-unit',
           html: stationIconHtml(station.name, station.type),
@@ -426,9 +430,9 @@ const MapView = forwardRef(function MapView(
         };
 
         const activeIncident = selectedIncidentRef.current;
-        const keys = activeIncident ? [activeIncident] : incidents.map((i) => i.id);
+        const keys = activeIncident ? [activeIncident] : allIncidents.map((i) => i.id);
         keys.forEach((key) => {
-          const incident = incidents.find((i) => i.id === key);
+          const incident = allIncidents.find((i) => i.id === key);
           if (!incident) return;
           const metersPerPixel = metersPerPixelAt(incident.lat, incident.lng);
           const center = mapInstance.latLngToContainerPoint([incident.lat, incident.lng]);
@@ -652,8 +656,8 @@ const MapView = forwardRef(function MapView(
     layer.clearLayers();
 
     (drawnClosures || []).forEach((closure) => {
-      if (selectedIncidentId && closure.incident !== selectedIncidentId) return;
-      L.polyline(closure.path, {
+      if (selectedIncidentId && (closure.incident_id ?? closure.incident) !== selectedIncidentId) return;
+      L.polyline(closure.path ?? closure.points ?? [], {
         color: closure.status === 'active' ? '#ff3b3b' : '#ffd166',
         weight: 3,
         dashArray: '6 6',
@@ -703,7 +707,7 @@ const MapView = forwardRef(function MapView(
       controlled: '#ffd166',
       surveillance: '#4facfe',
     };
-    (customIncidents || []).forEach((inc) => {
+    (customIncidents || []).filter(inc => inc.lat != null && inc.lng != null).forEach((inc) => {
       const color = incidentColors[inc.status] || '#ff3b3b';
       const icon = L.divIcon({
         className: 'map-icon',
@@ -771,7 +775,7 @@ const MapView = forwardRef(function MapView(
         return;
       }
 
-      const unit = units.find((u) => u.id === id);
+      const unit = allUnits.find((u) => u.id === id);
       const assignment = unitAssignmentsRef.current[id];
       // Fall back to unit.incident when assignment not yet in state (stale localStorage)
       const effectiveIncident = assignment !== undefined ? assignment : unit?.incident;
@@ -784,7 +788,20 @@ const MapView = forwardRef(function MapView(
         if (marker.isPopupOpen?.()) marker.closePopup();
       }
     });
-  }, [selectedIncidentId, selectedUnitId, isPublic, clusterEnabled]);
+  }, [selectedIncidentId, selectedUnitId, isPublic, clusterEnabled, unitAssignments]);
+
+  // Selected unit highlight
+  useEffect(() => {
+    if (!mapReady) return
+    Object.entries(unitMarkersRef.current).forEach(([id, marker]) => {
+      const el = marker?.getElement?.()
+      if (!el) return
+      const badge = el.querySelector('.map-unit-badge')
+      if (!badge) return
+      if (id === selectedUnitId) badge.classList.add('unit-selected')
+      else badge.classList.remove('unit-selected')
+    })
+  }, [selectedUnitId])
 
   // Risk overlay visibility
   useEffect(() => {
@@ -798,8 +815,8 @@ const MapView = forwardRef(function MapView(
   // Closure layer visibility
   useEffect(() => {
     Object.entries(closureLayersRef.current).forEach(([id, layer]) => {
-      const closure = closures.find((c) => c.id === id);
-      const hide = selectedIncidentId && closure && closure.incident !== selectedIncidentId;
+      const closure = drawnClosures.find((c) => c.id === id);
+      const hide = selectedIncidentId && closure && (closure.incident_id ?? closure.incident) !== selectedIncidentId;
       if (layer?.setStyle) layer.setStyle({ opacity: hide ? 0 : 1 });
     });
   }, [selectedIncidentId]);
@@ -817,6 +834,14 @@ const MapView = forwardRef(function MapView(
             title="Ativar/desativar agrupamento de unidades"
           >
             {clusterEnabled ? '⊕ Clustering' : '⊕ Clustering Off'}
+          </button>
+
+          <button
+            className={`map-ctrl-btn ${windyOpen ? 'map-ctrl-btn-active' : ''}`}
+            onClick={() => setWindyOpen(v => !v)}
+            title="Mapa meteorológico Windy"
+          >
+            🌬 Meteorologia
           </button>
 
           {selectedIncidentId && (
@@ -840,6 +865,28 @@ const MapView = forwardRef(function MapView(
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Entity legend */}
+      {isCommandView && (
+        <div className="map-legend">
+          <div className="map-legend-title">Legenda</div>
+          {[
+            { color: '#ef4444', glyph: 'A', label: 'ANEPC' },
+            { color: '#f97316', glyph: 'B', label: 'Bombeiros' },
+            { color: '#3b82f6', glyph: 'G', label: 'GNR' },
+            { color: '#a855f7', glyph: 'M', label: 'Municipal' },
+            { color: '#06b6d4', glyph: '✈', label: 'Aéreo' },
+            { color: '#22c55e', glyph: 'R', label: 'Logística' },
+          ].map(({ color, glyph, label }) => (
+            <div key={label} className="map-legend-item">
+              <div className="map-legend-dot" style={{ borderColor: color }}>
+                <span className="map-legend-glyph">{glyph}</span>
+              </div>
+              <span className="map-legend-label">{label}</span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -875,6 +922,26 @@ const MapView = forwardRef(function MapView(
             </div>
           ) : null}
         </div>
+
+        {windyOpen && (() => {
+          const lat = (incidentLat ?? 40.38).toFixed(2)
+          const lng = (incidentLng ?? -7.54).toFixed(2)
+          const src = `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lng}&detailLat=${lat}&detailLon=${lng}&zoom=8&level=surface&overlay=wind&product=ecmwf&menu=&message=true&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1`
+          return (
+            <div className="map-windy-panel">
+              <div className="map-windy-header">
+                <span>🌬 Meteorologia — Windy</span>
+                <button className="map-windy-close" onClick={() => setWindyOpen(false)}>✕</button>
+              </div>
+              <iframe
+                src={src}
+                className="map-windy-iframe"
+                allowFullScreen
+                title="Windy meteorologia"
+              />
+            </div>
+          )
+        })()}
 
         <div className="map-legend">
           <div className="legend-row">

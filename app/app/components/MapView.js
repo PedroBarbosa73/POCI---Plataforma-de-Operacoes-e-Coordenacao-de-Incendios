@@ -79,8 +79,8 @@ const MapView = forwardRef(function MapView(
     if (unit.type === 'bombeiros') return 'B'
     if (unit.type === 'anepc') return 'A'
     if (unit.type === 'municipal') return 'M'
-    if (unit.type === 'logistics') return 'L'
-    return 'O'
+    if (unit.type === 'logistics' || unit.type === 'other') return 'L'
+    return 'L'
   }
 
   // Keep refs in sync with props for use inside stale closures

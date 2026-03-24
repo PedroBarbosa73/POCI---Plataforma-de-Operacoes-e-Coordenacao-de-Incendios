@@ -74,7 +74,7 @@ function generateUnits(incidentId, lat, lng, incidentStatus, count = 100) {
     ...Array(15).fill('anepc'),
     ...Array(10).fill('municipal'),
     ...Array(5).fill('air'),
-    ...Array(10).fill('other'),
+    ...Array(10).fill('logistics'),
   ];
   for (let i = typeQueue.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));

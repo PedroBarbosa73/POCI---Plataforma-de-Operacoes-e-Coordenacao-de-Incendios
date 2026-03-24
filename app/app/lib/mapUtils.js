@@ -65,7 +65,7 @@ export function unitTypeColor(type) {
     municipal: '#a855f7',
     air:       '#06b6d4',
     logistics: '#22c55e',
-    other:     '#6b7280',
+    other:     '#22c55e',
   };
   return map[type] || '#6b7280';
 }

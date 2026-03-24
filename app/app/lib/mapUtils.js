@@ -106,14 +106,15 @@ export function stationIconHtml(name, type) {
     </div>`
 }
 
-// Unit label badge (pill with type border + status dot + name)
+// Unit label badge (pill with status border + type-colored dot + name)
+// Dot background = typeColor (matches legend), border = statusColor (shows operational state)
 export function unitIconHtml(name, statusColor, glyph, typeColor, isLetter = false) {
-  const dotStyle = `background:${statusColor}`;
+  const dotStyle = `background:${typeColor}`;
   const fontSize = isLetter
-    ? `font-size:12px;font-weight:800;color:${typeColor}`
-    : 'font-size:13px';
+    ? `font-size:12px;font-weight:800;color:#fff`
+    : 'font-size:13px;color:#fff';
   return `
-    <div class="map-unit-badge" style="border-color:${typeColor}">
+    <div class="map-unit-badge" style="border-color:${statusColor}">
       <div class="map-unit-dot" style="${dotStyle}"><span style="${fontSize}">${glyph}</span></div>
       <span class="map-unit-text">${name}</span>
     </div>

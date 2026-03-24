@@ -3,12 +3,10 @@
 import Panel from './Panel';
 import { usePociState } from '../../lib/usePociState';
 
-const typeBadge = { tactical: 'badge-available', logistics: 'badge-medium', weather: 'badge-controlled' };
-
 export default function RadioPanel({ incidentId }) {
-  const { radioMessages } = usePociState()
-  const filtered = radioMessages.filter(
-    (m) => m.incidentId === incidentId || m.incidentId === null
+  const { opLog } = usePociState()
+  const filtered = opLog.filter(
+    (e) => e.type === 'radio_message' && (e.incidentId === incidentId || e.incidentId === null)
   );
 
   return (
@@ -20,7 +18,7 @@ export default function RadioPanel({ incidentId }) {
           <div key={m.id} className="card">
             <div className="card-header">
               <div className="card-name">{m.from}</div>
-              <span className={`badge ${typeBadge[m.type] || 'badge-available'}`}>{m.id}</span>
+              <span className="badge badge-radio">{m.id}</span>
             </div>
             <div className="card-meta">"{m.message || m.msg}"</div>
           </div>

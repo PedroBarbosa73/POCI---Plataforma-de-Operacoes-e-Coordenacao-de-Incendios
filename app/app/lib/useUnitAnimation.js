@@ -39,12 +39,18 @@ async function fetchRoute(fromLng, fromLat, toLng, toLat) {
   }
 }
 
-export function useUnitAnimation() {
+// Module-level route cache — persists across demo runs for the same coordinates
+const globalRouteCache = new Map()
+
+export function useUnitAnimation({ onUnitArrived } = {}) {
   const [animatedPositions, setAnimatedPositions] = useState({})
   // { [unitId]: { waypoints: [[lng,lat],...], waypointIndex, subProgress, speedKmh } }
   const unitRoutesRef = useRef({})
-  // Map<`${unitId}:${incidentId}`, [[lng,lat],...]>
-  const routeCacheRef = useRef(new Map())
+  // Use module-level cache so routes survive across demo runs
+  const routeCacheRef = useRef(globalRouteCache)
+  const arrivedRef = useRef(new Set())
+  const onUnitArrivedRef = useRef(onUnitArrived)
+  useEffect(() => { onUnitArrivedRef.current = onUnitArrived }, [onUnitArrived])
 
   // Single interval ticks all active routes
   useEffect(() => {
@@ -83,6 +89,10 @@ export function useUnitAnimation() {
           const last = waypoints[waypoints.length - 1]
           updates[unitId] = [last[1], last[0]]
           unitRoutesRef.current[unitId] = { ...route, waypointIndex: waypoints.length - 1, subProgress: 0 }
+          if (!arrivedRef.current.has(unitId)) {
+            arrivedRef.current.add(unitId)
+            onUnitArrivedRef.current?.(unitId)
+          }
         } else {
           const pos = lerp(waypoints[newIdx], waypoints[newIdx + 1], newSub)
           updates[unitId] = [pos[1], pos[0]] // [lat, lng]
@@ -98,31 +108,57 @@ export function useUnitAnimation() {
     return () => clearInterval(id)
   }, [])
 
-  async function startUnitMovement(unit, incident) {
-    const cacheKey = `${unit.id}:${incident.id}`
-    let waypoints = routeCacheRef.current.get(cacheKey)
+  // fromPos: optional [lat, lng] override for the start position (e.g. a fire station)
+  async function startUnitMovement(unit, incident, fromPos = null) {
+    const startLat = fromPos ? fromPos[0] : unit.lat
+    const startLng = fromPos ? fromPos[1] : unit.lng
+    // Key by coordinates only — routes reuse across demo runs to the same destination
+    const cacheKey = `${startLat.toFixed(4)},${startLng.toFixed(4)}:${incident.lat.toFixed(4)},${incident.lng.toFixed(4)}`
 
-    if (!waypoints) {
-      if (unit.type === 'air') {
-        // Air units fly straight
-        waypoints = [[unit.lng, unit.lat], [incident.lng, incident.lat]]
-      } else {
-        waypoints = await fetchRoute(unit.lng, unit.lat, incident.lng, incident.lat)
-      }
-      routeCacheRef.current.set(cacheKey, waypoints)
-    }
+    // Snap marker to start position immediately
+    setAnimatedPositions(prev => ({ ...prev, [unit.id]: [startLat, startLng] }))
 
+    // Start with straight-line so movement begins instantly
+    const straightLine = [[startLng, startLat], [incident.lng, incident.lat]]
     unitRoutesRef.current[unit.id] = {
-      waypoints,
+      waypoints: straightLine,
       waypointIndex: 0,
       subProgress: 0,
       speedKmh: getSpeedKmh(unit),
     }
+
+    // Skip OSRM for air units
+    if (unit.type === 'air') {
+      routeCacheRef.current.set(cacheKey, straightLine)
+      return
+    }
+
+    // Check cache first
+    const cached = routeCacheRef.current.get(cacheKey)
+    if (cached) {
+      unitRoutesRef.current[unit.id] = { ...unitRoutesRef.current[unit.id], waypoints: cached }
+      return
+    }
+
+    // Fetch real route in background — upgrade when ready
+    fetchRoute(startLng, startLat, incident.lng, incident.lat).then(waypoints => {
+      routeCacheRef.current.set(cacheKey, waypoints)
+      // Only upgrade if unit is still moving toward this incident
+      if (unitRoutesRef.current[unit.id]) {
+        unitRoutesRef.current[unit.id] = {
+          ...unitRoutesRef.current[unit.id],
+          waypoints,
+          waypointIndex: 0,
+          subProgress: 0,
+        }
+      }
+    })
   }
 
   // restorePos: optional [lat, lng] to move the marker back to on stop
   function stopUnitMovement(unitId, restorePos = null) {
     delete unitRoutesRef.current[unitId]
+    arrivedRef.current.delete(unitId)
     setAnimatedPositions(prev => {
       const next = { ...prev }
       if (restorePos) {
@@ -136,7 +172,6 @@ export function useUnitAnimation() {
 
   function clearAllMovement() {
     unitRoutesRef.current = {}
-    routeCacheRef.current.clear()
     setAnimatedPositions({})
   }
 

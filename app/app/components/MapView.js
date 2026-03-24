@@ -18,7 +18,7 @@ const MapView = forwardRef(function MapView(
     onPlaceIncident,
     customIncidents,
     unitStatuses = {},
-    allUnits,
+    allUnits = [],
     unitAssignments = {},
     animatedPositions = {},
     incidentLat,
@@ -41,6 +41,8 @@ const MapView = forwardRef(function MapView(
   const unitMarkersRef = useRef({});
   const closureLayersRef = useRef({});
   const riskOverlaysRef = useRef({});
+  const riskOverlayRef = useRef(null);
+  const stationsLayerRef = useRef(null);
   const LRef = useRef(null);
   const drawnZonesLayerRef = useRef(null);
   const drawnClosuresLayerRef = useRef(null);
@@ -77,7 +79,8 @@ const MapView = forwardRef(function MapView(
     if (unit.type === 'bombeiros') return 'B'
     if (unit.type === 'anepc') return 'A'
     if (unit.type === 'municipal') return 'M'
-    return 'R'
+    if (unit.type === 'logistics') return 'L'
+    return 'O'
   }
 
   // Keep refs in sync with props for use inside stale closures
@@ -121,6 +124,105 @@ const MapView = forwardRef(function MapView(
   useEffect(() => { unitStatusesRef.current = unitStatuses }, [unitStatuses])
   useEffect(() => { allUnitsRef.current = allUnits || [] }, [allUnits])
   useEffect(() => { unitAssignmentsRef.current = unitAssignments }, [unitAssignments])
+
+  // Reactive: rebuild unit markers when allUnits changes (e.g. after Supabase load)
+  useEffect(() => {
+    if (!mapReady) return
+    const L = LRef.current
+    const clusterLayer = unitClusterLayerRef.current
+    const plainLayer = unitPlainLayerRef.current
+    if (!L || !clusterLayer) return
+
+    // Remove all existing unit markers
+    Object.values(unitMarkersRef.current).forEach(m => {
+      if (clusterLayer.hasLayer(m)) clusterLayer.removeLayer(m)
+      if (plainLayer && plainLayer.hasLayer(m)) plainLayer.removeLayer(m)
+    })
+    unitMarkersRef.current = {}
+
+    allUnits.forEach(unit => {
+      if (unit.lat == null || unit.lng == null) return
+      const status = unitStatusesRef.current[unit.id] || unit.status || 'available'
+      const statusColor = unitStatusColor(status)
+      const typeColor = unitTypeColor(unit.type)
+      const glyph = unitGlyph(unit)
+      const isLetter = unit.type !== 'air'
+      const icon = L.divIcon({
+        className: 'map-icon map-unit',
+        html: unitIconHtml(unit.name, statusColor, glyph, typeColor, isLetter),
+        iconSize: [140, 24],
+        iconAnchor: [10, 12],
+        popupAnchor: [70, -10],
+      })
+      const targetLayer = unitPlainLayerRef.current && !clusterEnabled ? unitPlainLayerRef.current : clusterLayer
+      const marker = L.marker([unit.lat, unit.lng], { icon })
+        .bindPopup(`<b>${unit.name}</b><br>${unit.id}`)
+        .addTo(targetLayer)
+      unitMarkersRef.current[unit.id] = marker
+    })
+  }, [allUnits, mapReady]) // eslint-disable-line
+
+  // Reactive: rebuild incident markers + fire perimeters when allIncidents changes
+  useEffect(() => {
+    if (!mapReady) return
+    const L = LRef.current
+    const incidentLayer = incidentLayerRef.current
+    const riskOverlay = riskOverlayRef.current
+    if (!L || !incidentLayer || !riskOverlay) return
+
+    // Remove existing non-custom incident markers
+    Object.keys(incidentMarkersRef.current)
+      .filter(id => !id.startsWith('CUST-'))
+      .forEach(id => {
+        const m = incidentMarkersRef.current[id]
+        if (m) { incidentLayer.removeLayer(m); delete incidentMarkersRef.current[id] }
+      })
+    // Clear risk overlays
+    Object.values(riskOverlaysRef.current).forEach(o => riskOverlay.removeLayer(o))
+    riskOverlaysRef.current = {}
+
+    const incidentColors = { active: '#ff3b3b', controlled: '#ffd166', surveillance: '#4facfe', resolved: '#06d6a0' }
+    allIncidents.forEach(incident => {
+      if (incident.lat == null || incident.lng == null) return
+      const perimeter = buildIrregularPerimeter(incident)
+      const overlay = L.polygon(perimeter, {
+        color: '#ff3b2f', weight: 2, opacity: 0.8, fillColor: '#ffb04a', fillOpacity: 0.55,
+      }).addTo(riskOverlay)
+      riskOverlaysRef.current[incident.id] = overlay
+
+      const color = incidentColors[incident.status] || '#ffffff'
+      const icon = L.divIcon({
+        className: 'map-icon',
+        html: mapIconHtml(incident.name, color, '🔥'),
+        iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -10],
+      })
+      const marker = L.marker([incident.lat, incident.lng], { icon })
+        .bindPopup(`${incident.name} (${incident.id})`)
+        .addTo(incidentLayer)
+      incidentMarkersRef.current[incident.id] = marker
+    })
+  }, [allIncidents, mapReady]) // eslint-disable-line
+
+  // Reactive: rebuild fire station markers when allFireStations changes
+  useEffect(() => {
+    if (!mapReady) return
+    const L = LRef.current
+    const stationsLayer = stationsLayerRef.current
+    if (!L || !stationsLayer) return
+
+    stationsLayer.clearLayers()
+    allFireStations.forEach(station => {
+      if (station.lat == null || station.lng == null) return
+      const icon = L.divIcon({
+        className: 'map-icon map-unit',
+        html: stationIconHtml(station.name, station.type),
+        iconSize: [160, 22], iconAnchor: [10, 11], popupAnchor: [70, -8],
+      })
+      L.marker([station.lat, station.lng], { icon })
+        .bindPopup(`<b>${station.name}</b><br>${station.type === 'sapadores' ? 'Bombeiros Sapadores' : station.type === 'municipais' ? 'Bombeiros Municipais' : 'Bombeiros Voluntários'}`)
+        .addTo(stationsLayer)
+    })
+  }, [allFireStations, mapReady]) // eslint-disable-line
 
   // Reactive: update unit marker icon colors when unitStatuses changes
   useEffect(() => {
@@ -233,6 +335,7 @@ const MapView = forwardRef(function MapView(
       const closureLayer = L.layerGroup().addTo(mapInstance);
       const zonesOverlay = L.layerGroup().addTo(mapInstance);
       const riskOverlay = L.layerGroup().addTo(mapInstance);
+      riskOverlayRef.current = riskOverlay;
 
       const drawnZonesLayer = L.layerGroup().addTo(mapInstance);
       drawnZonesLayerRef.current = drawnZonesLayer;
@@ -309,6 +412,7 @@ const MapView = forwardRef(function MapView(
 
       // ── Fire stations layer ──────────────────────────────────────────
       const stationsLayer = L.layerGroup(); // OFF by default (not added to map)
+      stationsLayerRef.current = stationsLayer;
       allFireStations.forEach((station) => {
         const icon = L.divIcon({
           className: 'map-icon map-unit',
@@ -878,11 +982,11 @@ const MapView = forwardRef(function MapView(
             { color: '#3b82f6', glyph: 'G', label: 'GNR' },
             { color: '#a855f7', glyph: 'M', label: 'Municipal' },
             { color: '#06b6d4', glyph: '✈', label: 'Aéreo' },
-            { color: '#22c55e', glyph: 'R', label: 'Logística' },
+            { color: '#22c55e', glyph: 'L', label: 'Logística' },
           ].map(({ color, glyph, label }) => (
             <div key={label} className="map-legend-item">
-              <div className="map-legend-dot" style={{ borderColor: color }}>
-                <span className="map-legend-glyph">{glyph}</span>
+              <div className="map-legend-dot" style={{ background: color, border: 'none' }}>
+                <span className="map-legend-glyph" style={{ color: '#fff', fontSize: glyph.length > 1 ? 10 : 11 }}>{glyph}</span>
               </div>
               <span className="map-legend-label">{label}</span>
             </div>

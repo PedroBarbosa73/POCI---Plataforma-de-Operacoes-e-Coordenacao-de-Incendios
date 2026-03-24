@@ -31,7 +31,7 @@ function StatBox({ label, value, sub, color }) {
   );
 }
 
-export default function IncidentDetail({ incident, units, unitStatuses = {}, closures, zones, weatherLat, weatherLng, onClose, visiblePanels = {}, onDeleteZone, onDeleteClosure, drawnClosureIds = new Set(), onDrawZone, onDrawClosure }) {
+export default function IncidentDetail({ incident, units = [], unitStatuses = {}, closures = [], zones = [], weatherLat, weatherLng, onClose, visiblePanels = {}, onDeleteZone, onDeleteClosure, drawnClosureIds = new Set(), onDrawZone, onDrawClosure }) {
   const onscene = units.filter((u) => (unitStatuses[u.id] || u.status) === 'onscene').length;
   const enroute = units.filter((u) => (unitStatuses[u.id] || u.status) === 'enroute').length;
 

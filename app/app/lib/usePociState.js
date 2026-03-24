@@ -135,17 +135,18 @@ export function usePociState() {
   const allUnits = useMemo(() =>
     units.map(u => {
       const us = unitStates.find(s => s.unit_id === u.id)
+      const station = u.station_id ? fireStations.find(s => s.id === u.station_id) : null
       return {
         ...u,
         airKind: u.air_kind,
         stationId: u.station_id,
-        lat: us?.lat ?? u.base_lat,
-        lng: us?.lng ?? u.base_lng,
+        lat: us?.lat ?? u.base_lat ?? station?.lat ?? null,
+        lng: us?.lng ?? u.base_lng ?? station?.lng ?? null,
         status: us?.status ?? 'available',
         incident: us?.incident_id ?? null,
       }
     }),
-    [units, unitStates]
+    [units, unitStates, fireStations]
   )
 
   // Returns units for a given incident — kept as a function for API compatibility with PociApp.js

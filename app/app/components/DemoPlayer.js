@@ -1,6 +1,6 @@
 'use client';
 
-export default function DemoPlayer({ steps, currentStep, onNext, onPrev, onTerminate }) {
+export default function DemoPlayer({ steps, currentStep, onNext, onPrev, onTerminate, onReset, presentationMode, onTogglePresentation }) {
   const executedStep = steps[currentStep - 1]
   const isDone = currentStep >= steps.length
   const isFirst = currentStep === 0
@@ -29,6 +29,12 @@ export default function DemoPlayer({ steps, currentStep, onNext, onPrev, onTermi
             Próximo →
           </button>
         )}
+        <button className="demo-player-btn" onClick={onReset}>
+          ↺ Reiniciar
+        </button>
+        <button className="demo-player-btn" onClick={onTogglePresentation}>
+          {presentationMode ? '✕ Ecrã' : '⛶ Ecrã'}
+        </button>
         <button className="demo-player-btn demo-player-btn-danger" onClick={onTerminate}>
           ✕ Terminar
         </button>
